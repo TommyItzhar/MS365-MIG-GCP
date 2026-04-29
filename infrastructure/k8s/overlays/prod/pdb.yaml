@@ -1,0 +1,33 @@
+# © Itzhar Olivera Solutions & Strategy — Tom Yair Tommy Itzhar Olivera
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: backend-pdb
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: migration-backend
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: frontend-pdb
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: migration-frontend
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: worker-pdb
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: migration-worker

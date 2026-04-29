@@ -1,0 +1,58 @@
+# © Itzhar Olivera Solutions & Strategy — Tom Yair Tommy Itzhar Olivera
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: migration-prod
+
+resources:
+  - ../../base
+  - hpa.yaml
+  - pdb.yaml
+
+namePrefix: prod-
+commonLabels:
+  environment: prod
+
+images:
+  - name: backend
+    newName: ghcr.io/itzhar-olivera/ms365-gcp-migration/backend
+    newTag: prod-latest
+  - name: frontend
+    newName: ghcr.io/itzhar-olivera/ms365-gcp-migration/frontend
+    newTag: prod-latest
+
+replicas:
+  - name: backend
+    count: 3
+  - name: worker
+    count: 4
+  - name: frontend
+    count: 3
+
+patches:
+  - target:
+      kind: Deployment
+      name: backend
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: 500m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: 512Mi
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "2"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 1Gi
+  - target:
+      kind: Ingress
+      name: migration-ingress
+    patch: |-
+      - op: replace
+        path: /spec/tls/0/hosts/0
+        value: migration.itzhar-olivera.com
+      - op: replace
+        path: /spec/rules/0/host
+        value: migration.itzhar-olivera.com

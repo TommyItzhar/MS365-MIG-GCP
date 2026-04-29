@@ -1,0 +1,12 @@
+# © Itzhar Olivera Solutions & Strategy — Tom Yair Tommy Itzhar Olivera
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - deployment.yaml
+  - configmap.yaml
+  - secret.yaml
+
+commonLabels:
+  app.kubernetes.io/part-of: migration-platform
+  app.kubernetes.io/managed-by: argocd

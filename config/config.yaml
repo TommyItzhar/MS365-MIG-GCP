@@ -1,0 +1,138 @@
+# ─────────────────────────────────────────────────────────────────────────── #
+# MS365 → GCP Migration Engine — Non-secret configuration
+# All secrets (client_secret, SA key) are in GCP Secret Manager.
+# Tenant IDs and project IDs are not secrets — safe to store here.
+# ─────────────────────────────────────────────────────────────────────────── #
+
+# ── Source tenant (Azure / Microsoft 365) ─────────────────────────────────── #
+azure_tenant:
+  tenant_id: ""             # Your Entra ID / Azure AD tenant ID (GUID)
+                            # Found at: Entra admin center → Overview → Tenant ID
+  tenant_domain: ""         # e.g. "yourcompany.onmicrosoft.com"
+  tenant_name: ""           # Human-readable label, e.g. "Contoso Corp"
+
+# ── Destination tenant (Google Cloud Platform) ────────────────────────────── #
+gcp_tenant:
+  project_id: ""            # GCP project ID, e.g. "my-migration-project"
+                            # Found at: console.cloud.google.com → project selector
+  organization_id: ""       # GCP org ID (optional), e.g. "123456789012"
+  project_number: ""        # GCP project number (optional), e.g. "987654321098"
+
+# ── Per-environment overrides ─────────────────────────────────────────────── #
+# Each environment has its own Azure app registration (client_id) and
+# GCP project. Secrets (client_secret, SA key) are always in Secret Manager.
+environments:
+  dev:
+    active: true
+    azure:
+      tenant_id: ""         # Can differ from azure_tenant if using a dev tenant
+      client_id: ""         # App registration client ID for this environment
+    gcp:
+      project_id: ""
+      gcs_bucket: ""
+      firestore_database: "(default)"
+      region: "us-central1"
+
+  test:
+    active: false
+    azure:
+      tenant_id: ""
+      client_id: ""
+    gcp:
+      project_id: ""
+      gcs_bucket: ""
+      firestore_database: "(default)"
+      region: "us-central1"
+
+  prod:
+    active: false
+    azure:
+      tenant_id: ""
+      client_id: ""
+    gcp:
+      project_id: ""
+      gcs_bucket: ""
+      firestore_database: "(default)"
+      region: "us-central1"
+
+app:
+  log_level: INFO
+  api_host: "0.0.0.0"
+  api_port: 8080
+
+gcp:
+  project_id: ""                        # Override via GCP_PROJECT_ID env var
+  region: "us-central1"
+  gcs_bucket: ""                        # Override via GCP_GCS_BUCKET env var
+  bigquery_dataset: "migration_data"
+  firestore_database: "(default)"
+  pubsub_dlq_topic: "migration-dlq"
+  cloud_tasks_queue: "migration-jobs"
+
+engine:
+  checkpoint_interval: 100             # Persist checkpoint every N items
+  max_retry_attempts: 5
+  worker_concurrency: 8
+  use_secret_manager: true
+
+workloads:
+  exchange:
+    enabled: true
+    concurrency: 4
+    batch_size: 50
+    include_hidden_folders: true
+    include_recoverable_items: true
+
+  onedrive:
+    enabled: true
+    concurrency: 8
+    chunk_size_mb: 8
+    use_delta_sync: true
+
+  sharepoint:
+    enabled: true
+    concurrency: 6
+    include_versions: true
+    include_permissions: true
+    include_term_store: true
+
+  teams:
+    enabled: true
+    concurrency: 2
+    use_export_api: true               # Requires Teams Export API license
+    include_meeting_recordings: true
+
+  teams_chat:
+    enabled: true
+    concurrency: 2
+
+  groups:
+    enabled: true
+    concurrency: 4
+
+  identity:
+    enabled: true
+    concurrency: 8
+
+  intune:
+    enabled: true
+    concurrency: 4
+
+  power_automate:
+    enabled: true
+    concurrency: 4
+
+  forms:
+    enabled: true
+    concurrency: 4
+
+  planner:
+    enabled: true
+    concurrency: 4
+
+monitoring:
+  cloud_monitoring_enabled: true
+  structured_logging: true
+  dlq_alert_threshold: 100
+  auth_failure_rate_threshold: 0.05
+  throughput_drop_threshold: 0.50

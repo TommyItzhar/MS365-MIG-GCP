@@ -1,0 +1,118 @@
+# © Itzhar Olivera Solutions & Strategy — Tom Yair Tommy Itzhar Olivera
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  labels: { app: migration-backend }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: migration-backend } }
+  template:
+    metadata:
+      labels: { app: migration-backend }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "5000"
+    spec:
+      containers:
+        - name: backend
+          image: backend
+          ports: [{ containerPort: 5000 }]
+          envFrom:
+            - secretRef: { name: migration-secrets }
+            - configMapRef: { name: migration-config }
+          readinessProbe:
+            httpGet: { path: /health, port: 5000 }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /health, port: 5000 }
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          resources:
+            requests: { cpu: 250m, memory: 256Mi }
+            limits:   { cpu: "1",  memory: 512Mi }
+
+---
+apiVersion: v1
+kind: Service
+metadata: { name: backend }
+spec:
+  selector: { app: migration-backend }
+  ports: [{ port: 5000, targetPort: 5000 }]
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  labels: { app: migration-worker }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: migration-worker } }
+  template:
+    metadata: { labels: { app: migration-worker } }
+    spec:
+      containers:
+        - name: worker
+          image: backend
+          command: ["celery", "-A", "celery_worker.celery_app", "worker", "--loglevel=info", "--concurrency=4"]
+          envFrom:
+            - secretRef: { name: migration-secrets }
+            - configMapRef: { name: migration-config }
+          resources:
+            requests: { cpu: 500m, memory: 512Mi }
+            limits:   { cpu: "2",  memory: 1Gi }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  labels: { app: migration-frontend }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: migration-frontend } }
+  template:
+    metadata: { labels: { app: migration-frontend } }
+    spec:
+      containers:
+        - name: frontend
+          image: frontend
+          ports: [{ containerPort: 80 }]
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits:   { cpu: 500m, memory: 256Mi }
+
+---
+apiVersion: v1
+kind: Service
+metadata: { name: frontend }
+spec:
+  selector: { app: migration-frontend }
+  ports: [{ port: 80, targetPort: 80 }]
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: migration-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  tls:
+    - hosts: [migration.itzhar-olivera.com]
+      secretName: migration-tls
+  rules:
+    - host: migration.itzhar-olivera.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend: { service: { name: backend,  port: { number: 5000 } } }
+          - path: /
+            pathType: Prefix
+            backend: { service: { name: frontend, port: { number: 80 } } }

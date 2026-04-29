@@ -1,0 +1,107 @@
+# MS365 → GCP Migration Engine — local development stack
+# Production target: Cloud Run (backend) + GKE (frontend)
+# State: Firestore (emulated locally)  Queue: Pub/Sub emulator
+# ─────────────────────────────────────────────────────────────────────────── #
+
+x-backend-env: &backend-env
+  ENVIRONMENT: development
+  GCP_PROJECT_ID: ${GCP_PROJECT_ID:-migration-dev-local}
+  GCP_GCS_BUCKET: ${GCP_GCS_BUCKET:-migration-dev-bucket}
+  GCP_REGION: us-central1
+  # Secret Manager disabled in dev — use env vars
+  ENGINE_USE_SECRET_MANAGER: "false"
+  MS365_TENANT_ID: ${MS365_TENANT_ID:-}
+  MS365_CLIENT_ID: ${MS365_CLIENT_ID:-}
+  MS365_CLIENT_SECRET: ${MS365_CLIENT_SECRET:-}
+  # Point GCP clients at emulators
+  FIRESTORE_EMULATOR_HOST: firestore:8080
+  PUBSUB_EMULATOR_HOST: pubsub:8085
+  STORAGE_EMULATOR_HOST: http://gcs:4443
+  GOOGLE_CLOUD_PROJECT: migration-dev-local
+  LOG_LEVEL: DEBUG
+
+services:
+  # ── GCP Emulators ─────────────────────────────────────────────────────── #
+  firestore:
+    image: google/cloud-sdk:latest
+    command: >
+      gcloud emulators firestore start
+      --host-port=0.0.0.0:8080
+      --project=migration-dev-local
+    ports: ["8080:8080"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 10s
+      retries: 5
+
+  pubsub:
+    image: google/cloud-sdk:latest
+    command: >
+      gcloud beta emulators pubsub start
+      --host-port=0.0.0.0:8085
+      --project=migration-dev-local
+    ports: ["8085:8085"]
+
+  gcs:
+    image: fsouza/fake-gcs-server:latest
+    command: ["-scheme", "http", "-port", "4443", "-backend", "memory"]
+    ports: ["4443:4443"]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4443/storage/v1/b"]
+      interval: 10s
+      retries: 5
+
+  # ── Migration Engine (FastAPI) ─────────────────────────────────────────── #
+  backend:
+    build:
+      context: ./backend
+      target: runtime
+    env_file: .env
+    environment:
+      <<: *backend-env
+    ports: ["8080:8080"]
+    depends_on:
+      firestore: { condition: service_healthy }
+      gcs: { condition: service_healthy }
+    volumes:
+      - ./backend:/app
+      - ./config:/app/config:ro
+    command: >
+      uvicorn main:app --host 0.0.0.0 --port 8080
+      --reload --log-level debug
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v1/health"]
+      interval: 10s
+      retries: 5
+
+  # ── Frontend (React/Vite + Nginx) ──────────────────────────────────────── #
+  frontend:
+    build: ./frontend
+    ports: ["3000:80"]
+    environment:
+      VITE_API_URL: http://backend:8080
+    depends_on:
+      backend: { condition: service_healthy }
+
+  # ── Observability ──────────────────────────────────────────────────────── #
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    ports: ["9090:9090"]
+    volumes:
+      - ./infrastructure/grafana/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+
+  grafana:
+    image: grafana/grafana:11.0.0
+    ports: ["3001:3000"]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infrastructure/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infrastructure/grafana/dashboards:/var/lib/grafana/dashboards:ro
+
+volumes:
+  grafana_data:
+  prometheus_data:

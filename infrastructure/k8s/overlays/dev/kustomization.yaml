@@ -1,0 +1,50 @@
+# © Itzhar Olivera Solutions & Strategy — Tom Yair Tommy Itzhar Olivera
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: migration-dev
+
+resources:
+  - ../../base
+
+namePrefix: dev-
+commonLabels:
+  environment: dev
+
+images:
+  - name: backend
+    newName: ghcr.io/itzhar-olivera/ms365-gcp-migration/backend
+    newTag: dev-latest
+  - name: frontend
+    newName: ghcr.io/itzhar-olivera/ms365-gcp-migration/frontend
+    newTag: dev-latest
+
+replicas:
+  - name: backend
+    count: 1
+  - name: worker
+    count: 1
+  - name: frontend
+    count: 1
+
+patches:
+  - target:
+      kind: ConfigMap
+      name: migration-config
+    patch: |-
+      - op: replace
+        path: /data/FLASK_ENV
+        value: development
+      - op: replace
+        path: /data/CORS_ORIGINS
+        value: "https://migration-dev.itzhar-olivera.com"
+  - target:
+      kind: Ingress
+      name: migration-ingress
+    patch: |-
+      - op: replace
+        path: /spec/tls/0/hosts/0
+        value: migration-dev.itzhar-olivera.com
+      - op: replace
+        path: /spec/rules/0/host
+        value: migration-dev.itzhar-olivera.com

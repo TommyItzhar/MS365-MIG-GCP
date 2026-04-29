@@ -1,0 +1,63 @@
+# © Itzhar Olivera Solutions & Strategy — Tom Yair Tommy Itzhar Olivera
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: migration-platform-dev
+  namespace: argocd
+  labels: { environment: dev }
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/itzhar-olivera/ms365-gcp-migration
+    targetRevision: dev
+    path: infrastructure/k8s/overlays/dev
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: migration-dev
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: [CreateNamespace=true, PrunePropagationPolicy=foreground]
+  revisionHistoryLimit: 5
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: migration-platform-test
+  namespace: argocd
+  labels: { environment: test }
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/itzhar-olivera/ms365-gcp-migration
+    targetRevision: test
+    path: infrastructure/k8s/overlays/test
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: migration-test
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: [CreateNamespace=true]
+  revisionHistoryLimit: 5
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: migration-platform-prod
+  namespace: argocd
+  labels: { environment: prod }
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/itzhar-olivera/ms365-gcp-migration
+    targetRevision: prod
+    path: infrastructure/k8s/overlays/prod
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: migration-prod
+  syncPolicy:
+    automated: { prune: false, selfHeal: false }   # prod requires manual sync
+    syncOptions: [CreateNamespace=true]
+  revisionHistoryLimit: 10

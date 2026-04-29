@@ -1,0 +1,91 @@
+{
+  "title": "MS365 → GCP Migration Platform",
+  "uid": "migration-overview",
+  "description": "© Itzhar Olivera Solutions & Strategy — Tom Yair Tommy Itzhar Olivera",
+  "tags": ["migration", "intune", "google-workspace"],
+  "schemaVersion": 38,
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Total Devices",
+      "targets": [{ "expr": "migration_devices_total", "refId": "A" }],
+      "fieldConfig": { "defaults": { "color": { "fixedColor": "blue", "mode": "fixed" }, "unit": "short" } },
+      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Enrolled in Google MDM",
+      "targets": [{ "expr": "migration_devices_google_enrolled", "refId": "A" }],
+      "fieldConfig": { "defaults": { "color": { "fixedColor": "purple", "mode": "fixed" }, "unit": "short" } },
+      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Offboarded from Intune",
+      "targets": [{ "expr": "migration_devices_intune_offboarded", "refId": "A" }],
+      "fieldConfig": { "defaults": { "color": { "fixedColor": "blue", "mode": "fixed" }, "unit": "short" } },
+      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Tasks Completed",
+      "targets": [{ "expr": "migration_tasks_completed", "refId": "A" }],
+      "fieldConfig": { "defaults": { "color": { "fixedColor": "green", "mode": "fixed" }, "unit": "short" } },
+      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Tasks Failed",
+      "targets": [{ "expr": "migration_tasks_failed", "refId": "A" }],
+      "fieldConfig": { "defaults": { "color": { "fixedColor": "red", "mode": "fixed" }, "thresholds": { "steps": [{ "color": "green", "value": 0 }, { "color": "red", "value": 1 }] } } },
+      "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 }
+    },
+    {
+      "id": 6,
+      "type": "gauge",
+      "title": "Overall Migration Progress",
+      "targets": [{ "expr": "(migration_tasks_completed / migration_tasks_total) * 100", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent", "min": 0, "max": 100,
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "steps": [
+              { "color": "blue", "value": 0 },
+              { "color": "purple", "value": 50 },
+              { "color": "green", "value": 80 }
+            ]
+          }
+        }
+      },
+      "gridPos": { "x": 0, "y": 4, "w": 8, "h": 8 }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Device Enrollment Over Time",
+      "targets": [
+        { "expr": "migration_devices_google_enrolled", "legendFormat": "Google Enrolled", "refId": "A" },
+        { "expr": "migration_devices_intune_offboarded", "legendFormat": "Intune Offboarded", "refId": "B" }
+      ],
+      "gridPos": { "x": 8, "y": 4, "w": 16, "h": 8 }
+    },
+    {
+      "id": 8,
+      "type": "bargauge",
+      "title": "Task Status Breakdown",
+      "targets": [
+        { "expr": "migration_tasks_completed", "legendFormat": "Completed", "refId": "A" },
+        { "expr": "migration_tasks_failed", "legendFormat": "Failed", "refId": "B" }
+      ],
+      "gridPos": { "x": 0, "y": 12, "w": 24, "h": 6 }
+    }
+  ],
+  "time": { "from": "now-7d", "to": "now" },
+  "refresh": "30s"
+}

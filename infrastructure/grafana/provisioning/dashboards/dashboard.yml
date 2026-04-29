@@ -1,0 +1,14 @@
+# © Itzhar Olivera Solutions & Strategy — Tom Yair Tommy Itzhar Olivera
+apiVersion: 1
+
+providers:
+  - name: Migration Platform
+    orgId: 1
+    folder: Migration
+    type: file
+    disableDeletion: false
+    editable: true
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: true
