@@ -8,6 +8,7 @@ secrets/
 *.pem
 *.key
 *-sa.json
+config/tenant_settings.json
 
 # Python
 __pycache__/

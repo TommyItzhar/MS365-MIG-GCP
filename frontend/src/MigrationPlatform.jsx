@@ -209,6 +209,27 @@ export default function MigrationPlatform() {
   const [expandedTask, setExpandedTask] = useState(null);
   const [discoveryRunning, setDiscoveryRunning] = useState(false);
 
+  // ── Tenants Connection state ─────────────────────────────────────────────
+  const [tcConfig, setTcConfig] = useState({
+    azure_tenant_id: "", azure_tenant_domain: "",
+    azure_client_id: "", azure_client_secret: "",
+    gcp_project_id: "", gcp_gcs_bucket: "",
+    gcp_region: "us-central1", gcp_firestore_database: "(default)",
+    gcp_service_account_json: "", active_environment: "dev",
+  });
+  const [tcLoading, setTcLoading] = useState(false);
+  const [tcSaving, setTcSaving] = useState(false);
+  const [tcAzureStatus, setTcAzureStatus] = useState(null);
+  const [tcGcpStatus, setTcGcpStatus] = useState(null);
+  const [tcAzureError, setTcAzureError] = useState(null);
+  const [tcGcpError, setTcGcpError] = useState(null);
+  const [tcShowSecret, setTcShowSecret] = useState(false);
+  const [tcShowSaJson, setTcShowSaJson] = useState(false);
+  const [tcRegisterOpen, setTcRegisterOpen] = useState(false);
+  const [tcAdminToken, setTcAdminToken] = useState("");
+  const [tcRegisterLoading, setTcRegisterLoading] = useState(false);
+  const [tcRegisterResult, setTcRegisterResult] = useState(null);
+
   const notify = (msg, type = "info") => {
     setNotification({ msg, type });
     setTimeout(() => setNotification(null), 4000);
@@ -343,6 +364,99 @@ export default function MigrationPlatform() {
     }, 5000);
   };
 
+  // ── Tenants Connection API ───────────────────────────────────────────────
+  const fetchTenantConfig = useCallback(async () => {
+    setTcLoading(true);
+    try {
+      const res = await fetch("/api/v1/setup/tenant-config");
+      if (res.ok) {
+        const data = await res.json();
+        setTcConfig(prev => ({ ...prev, ...data }));
+      }
+    } catch (_) {}
+    finally { setTcLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    if (activeView === "tenants") fetchTenantConfig();
+  }, [activeView, fetchTenantConfig]);
+
+  const saveTenantConfig = async () => {
+    setTcSaving(true);
+    try {
+      const res = await fetch("/api/v1/setup/tenant-config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(tcConfig),
+      });
+      if (res.ok) { notify("Configuration saved successfully", "success"); }
+      else { const e = await res.json(); notify(e.detail || "Save failed", "error"); }
+    } catch (_) { notify("Backend unreachable", "error"); }
+    finally { setTcSaving(false); }
+  };
+
+  const testAzure = async () => {
+    setTcAzureStatus("testing"); setTcAzureError(null);
+    try {
+      const body = {
+        tenant_id: tcConfig.azure_tenant_id,
+        client_id: tcConfig.azure_client_id,
+        client_secret: tcConfig.azure_client_secret !== "••••••••" ? tcConfig.azure_client_secret : undefined,
+      };
+      const res = await fetch("/api/v1/setup/validate", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      const m = data.services?.m365;
+      if (m?.ok) { setTcAzureStatus("ok"); }
+      else { setTcAzureStatus("error"); setTcAzureError(m?.error || "Connection failed"); }
+    } catch (_) { setTcAzureStatus("error"); setTcAzureError("Network error"); }
+  };
+
+  const testGcp = async () => {
+    setTcGcpStatus("testing"); setTcGcpError(null);
+    try {
+      const res = await fetch("/api/v1/setup/validate", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gcp_project_id: tcConfig.gcp_project_id }),
+      });
+      const data = await res.json();
+      const g = data.services?.gcp;
+      if (g?.ok) { setTcGcpStatus("ok"); }
+      else { setTcGcpStatus("error"); setTcGcpError(g?.error || "Connection failed"); }
+    } catch (_) { setTcGcpStatus("error"); setTcGcpError("Network error"); }
+  };
+
+  const registerAzureApp = async () => {
+    if (!tcAdminToken.trim()) { notify("Paste a Global Admin access token first", "error"); return; }
+    setTcRegisterLoading(true); setTcRegisterResult(null);
+    try {
+      const res = await fetch("/api/v1/setup/register-azure-app", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          admin_token: tcAdminToken,
+          update_environment: tcConfig.active_environment,
+          grant_admin_consent: true,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setTcRegisterResult(data);
+        setTcConfig(prev => ({
+          ...prev,
+          azure_client_id: data.client_id || prev.azure_client_id,
+          azure_client_secret: data.client_secret || prev.azure_client_secret,
+          azure_tenant_id: data.tenant_id || prev.azure_tenant_id,
+        }));
+        notify("App registration created! Save the client secret now.", "success");
+      } else {
+        notify(data.detail?.message || data.detail || "Registration failed", "error");
+      }
+    } catch (_) { notify("Network error during registration", "error"); }
+    finally { setTcRegisterLoading(false); }
+  };
+
   const filteredDevices = devices.filter(d =>
     deviceSearch === "" ||
     d.display_name.toLowerCase().includes(deviceSearch.toLowerCase()) ||
@@ -364,6 +478,7 @@ export default function MigrationPlatform() {
     { id: "devices", icon: "⬡", label: "Devices" },
     { id: "workplan", icon: "≡", label: "Workplan" },
     { id: "phases", icon: "◫", label: "Phases" },
+    { id: "tenants", icon: "⚿", label: "Tenants Connection" },
   ];
 
   return (
@@ -910,6 +1025,277 @@ export default function MigrationPlatform() {
             </div>
           </div>
         )}
+
+        {/* ── TENANTS CONNECTION VIEW ── */}
+        {activeView === "tenants" && (() => {
+          const inp = (val, onChange, placeholder, type = "text", mono = false) => (
+            <input
+              type={type} value={val} onChange={e => onChange(e.target.value)}
+              placeholder={placeholder}
+              style={{
+                width: "100%", boxSizing: "border-box",
+                padding: "8px 12px", border: `1px solid ${C.border}`,
+                borderRadius: 6, fontSize: 13, color: C.text,
+                background: C.surface, outline: "none",
+                fontFamily: mono ? "'IBM Plex Mono', monospace" : "inherit",
+              }}
+            />
+          );
+
+          const fieldRow = (label, hint, children) => (
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{label}</label>
+                {hint && <span style={{ fontSize: 11, color: C.textLight }}>{hint}</span>}
+              </div>
+              {children}
+            </div>
+          );
+
+          const statusBadge = (status, error) => {
+            if (!status) return null;
+            const cfg = {
+              testing: { bg: C.infoLight, color: C.info, label: "Testing…" },
+              ok:      { bg: C.successLight, color: C.success, label: "Connected ✓" },
+              error:   { bg: C.dangerLight, color: C.danger, label: "Failed ✗" },
+            }[status];
+            return (
+              <div>
+                <span style={{ padding: "3px 10px", borderRadius: 12, fontSize: 12, fontWeight: 600, background: cfg.bg, color: cfg.color }}>
+                  {cfg.label}
+                </span>
+                {error && <div style={{ fontSize: 11, color: C.danger, marginTop: 6 }}>{error}</div>}
+              </div>
+            );
+          };
+
+          const sectionHeader = (color, colorLight, icon, title, subtitle, status, error) => (
+            <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}`, background: `${color}08` }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 8, background: colorLight, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>
+                    {icon}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color }}>{title}</div>
+                    <div style={{ fontSize: 11, color: C.textMuted }}>{subtitle}</div>
+                  </div>
+                </div>
+                {statusBadge(status, error)}
+              </div>
+            </div>
+          );
+
+          const btn = (label, onClick, loading, colorBg, colorText, outline = false) => (
+            <button onClick={onClick} disabled={loading}
+              style={{
+                padding: "8px 18px", borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: loading ? "wait" : "pointer",
+                border: outline ? `1.5px solid ${colorBg}` : "none",
+                background: outline ? "transparent" : colorBg,
+                color: outline ? colorBg : colorText,
+                opacity: loading ? 0.6 : 1, transition: "opacity 0.15s",
+              }}>
+              {loading ? "…" : label}
+            </button>
+          );
+
+          return (
+            <div>
+              {/* Page header */}
+              <div style={{ marginBottom: 24, display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}>
+                <div>
+                  <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: C.text }}>Tenants Connection</h1>
+                  <p style={{ margin: "4px 0 0", color: C.textMuted, fontSize: 13 }}>
+                    Configure Microsoft 365 and Google Cloud Platform credentials. Secrets are stored locally and never committed to version control.
+                  </p>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: C.textMuted }}>Active environment</label>
+                  <select
+                    value={tcConfig.active_environment}
+                    onChange={e => setTcConfig(p => ({ ...p, active_environment: e.target.value }))}
+                    style={{ padding: "6px 12px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 13, background: C.surface, color: C.text, cursor: "pointer" }}
+                  >
+                    <option value="dev">Development</option>
+                    <option value="test">Testing</option>
+                    <option value="prod">Production</option>
+                  </select>
+                </div>
+              </div>
+
+              {tcLoading && (
+                <div style={{ textAlign: "center", padding: 40, color: C.textMuted, fontSize: 13 }}>Loading saved configuration…</div>
+              )}
+
+              {/* Two-column: Azure + GCP */}
+              {!tcLoading && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginBottom: 24 }}>
+
+                  {/* ── Microsoft 365 / Azure ── */}
+                  <Card style={{ padding: 0, overflow: "hidden" }}>
+                    {sectionHeader(C.ms, C.msLight, "☁", "Microsoft 365 / Azure", "Entra ID · Microsoft Graph API", tcAzureStatus, tcAzureError)}
+                    <div style={{ padding: 20 }}>
+                      {fieldRow("Tenant ID", "Entra admin center → Overview → Tenant ID",
+                        inp(tcConfig.azure_tenant_id, v => setTcConfig(p => ({ ...p, azure_tenant_id: v })), "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx", "text", true)
+                      )}
+                      {fieldRow("Tenant Domain", "e.g. yourcompany.onmicrosoft.com",
+                        inp(tcConfig.azure_tenant_domain, v => setTcConfig(p => ({ ...p, azure_tenant_domain: v })), "yourcompany.onmicrosoft.com")
+                      )}
+                      {fieldRow("App Client ID", "App Registrations → your app → Application (client) ID",
+                        inp(tcConfig.azure_client_id, v => setTcConfig(p => ({ ...p, azure_client_id: v })), "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx", "text", true)
+                      )}
+                      {fieldRow("Client Secret", "App Registrations → Certificates & secrets",
+                        <div style={{ position: "relative" }}>
+                          <input
+                            type={tcShowSecret ? "text" : "password"}
+                            value={tcConfig.azure_client_secret}
+                            onChange={e => setTcConfig(p => ({ ...p, azure_client_secret: e.target.value }))}
+                            placeholder="Paste client secret value"
+                            style={{ width: "100%", boxSizing: "border-box", padding: "8px 40px 8px 12px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, color: C.text, background: C.surface, outline: "none", fontFamily: "'IBM Plex Mono', monospace" }}
+                          />
+                          <button onClick={() => setTcShowSecret(v => !v)}
+                            style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", fontSize: 14, color: C.textMuted }}>
+                            {tcShowSecret ? "🙈" : "👁"}
+                          </button>
+                        </div>
+                      )}
+                      <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+                        {btn("Test Connection", testAzure, tcAzureStatus === "testing", C.ms, "#fff")}
+                        {btn("Auto-Register App →", () => setTcRegisterOpen(v => !v), false, C.ms, "#fff", true)}
+                      </div>
+                    </div>
+                  </Card>
+
+                  {/* ── Google Cloud Platform ── */}
+                  <Card style={{ padding: 0, overflow: "hidden" }}>
+                    {sectionHeader(C.gcp, C.gcpLight, "☁", "Google Cloud Platform", "Cloud Storage · Firestore · Pub/Sub", tcGcpStatus, tcGcpError)}
+                    <div style={{ padding: 20 }}>
+                      {fieldRow("Project ID", "console.cloud.google.com → project selector",
+                        inp(tcConfig.gcp_project_id, v => setTcConfig(p => ({ ...p, gcp_project_id: v })), "my-migration-project", "text", true)
+                      )}
+                      {fieldRow("GCS Bucket", "Cloud Storage bucket for migrated data",
+                        inp(tcConfig.gcp_gcs_bucket, v => setTcConfig(p => ({ ...p, gcp_gcs_bucket: v })), "my-migration-bucket")
+                      )}
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                        {fieldRow("Region",  null,
+                          <select value={tcConfig.gcp_region} onChange={e => setTcConfig(p => ({ ...p, gcp_region: e.target.value }))}
+                            style={{ width: "100%", padding: "8px 12px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, background: C.surface, color: C.text }}>
+                            {["us-central1","us-east1","us-west1","europe-west1","europe-west2","europe-west4","asia-east1","asia-southeast1","australia-southeast1"].map(r => (
+                              <option key={r} value={r}>{r}</option>
+                            ))}
+                          </select>
+                        )}
+                        {fieldRow("Firestore Database", null,
+                          inp(tcConfig.gcp_firestore_database, v => setTcConfig(p => ({ ...p, gcp_firestore_database: v })), "(default)")
+                        )}
+                      </div>
+                      {fieldRow("Service Account JSON",
+                        <span>IAM → Service Accounts → Keys → <span style={{ color: C.gcp, fontWeight: 600 }}>Add Key (JSON)</span></span>,
+                        <div style={{ position: "relative" }}>
+                          <textarea
+                            value={tcShowSaJson ? tcConfig.gcp_service_account_json : (tcConfig.gcp_service_account_json ? "••••••••  (click 👁 to reveal)" : "")}
+                            onChange={e => setTcConfig(p => ({ ...p, gcp_service_account_json: e.target.value }))}
+                            onFocus={() => setTcShowSaJson(true)}
+                            placeholder='Paste full contents of your service account .json key file'
+                            rows={tcShowSaJson ? 5 : 2}
+                            style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12, color: C.text, background: C.surface, outline: "none", fontFamily: "'IBM Plex Mono', monospace", resize: "vertical" }}
+                          />
+                          <button onClick={() => setTcShowSaJson(v => !v)}
+                            style={{ position: "absolute", right: 8, top: 8, background: "none", border: "none", cursor: "pointer", fontSize: 14, color: C.textMuted }}>
+                            {tcShowSaJson ? "🙈" : "👁"}
+                          </button>
+                        </div>
+                      )}
+                      <div style={{ marginTop: 8 }}>
+                        {btn("Test Connection", testGcp, tcGcpStatus === "testing", C.gcp, "#fff")}
+                      </div>
+                    </div>
+                  </Card>
+                </div>
+              )}
+
+              {/* ── Auto App Registration panel ── */}
+              {tcRegisterOpen && (
+                <Card style={{ marginBottom: 24, padding: 0, overflow: "hidden", border: `1px solid ${C.msMid}` }}>
+                  <div style={{ padding: "14px 20px", background: C.msLight, borderBottom: `1px solid ${C.msMid}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: C.msDark }}>Auto App Registration</div>
+                      <div style={{ fontSize: 12, color: C.slate, marginTop: 2 }}>
+                        Creates an Entra ID App Registration with all 15 required Graph permissions and grants admin consent automatically.
+                      </div>
+                    </div>
+                    <button onClick={() => setTcRegisterOpen(false)} style={{ background: "none", border: "none", fontSize: 18, cursor: "pointer", color: C.textMuted }}>✕</button>
+                  </div>
+                  <div style={{ padding: 20 }}>
+                    <div style={{ background: C.warningLight, border: `1px solid ${C.warning}`, borderRadius: 6, padding: "10px 14px", marginBottom: 16, fontSize: 12, color: C.warning }}>
+                      <strong>Requires a Global Admin delegated token.</strong> To get one: open a terminal and run<br />
+                      <code style={{ fontFamily: "monospace", background: "#0001", padding: "2px 6px", borderRadius: 4 }}>
+                        az login --scope https://graph.microsoft.com/Application.ReadWrite.All
+                      </code>
+                      <br />then copy the access token from the output (or use the Azure portal → Cloud Shell).
+                    </div>
+                    {fieldRow("Global Admin Access Token", "Delegated token — not your client secret",
+                      <div style={{ position: "relative" }}>
+                        <textarea
+                          value={tcAdminToken}
+                          onChange={e => setTcAdminToken(e.target.value)}
+                          placeholder="eyJ0eXAiOiJKV1QiLCJhbGciO…"
+                          rows={3}
+                          style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12, color: C.text, background: C.surface, outline: "none", fontFamily: "'IBM Plex Mono', monospace", resize: "none" }}
+                        />
+                      </div>
+                    )}
+                    <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                      {btn("Create App Registration", registerAzureApp, tcRegisterLoading, C.ms, "#fff")}
+                      {tcRegisterLoading && <span style={{ fontSize: 12, color: C.textMuted }}>Creating app, assigning permissions, granting consent…</span>}
+                    </div>
+
+                    {tcRegisterResult && (
+                      <div style={{ marginTop: 16, background: C.successLight, border: `1px solid ${C.success}`, borderRadius: 8, padding: 16 }}>
+                        <div style={{ fontWeight: 700, color: C.success, marginBottom: 10 }}>App registration created successfully!</div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 12, fontFamily: "monospace" }}>
+                          {[
+                            ["Client ID", tcRegisterResult.client_id],
+                            ["Tenant ID", tcRegisterResult.tenant_id],
+                            ["Object ID", tcRegisterResult.object_id],
+                            ["SP ID", tcRegisterResult.service_principal_id],
+                            ["Permissions granted", `${tcRegisterResult.permissions_granted_count} / 15`],
+                            ["Secret expires", tcRegisterResult.client_secret_expires?.slice(0, 10)],
+                          ].map(([k, v]) => v && (
+                            <div key={k}>
+                              <div style={{ color: C.textMuted, fontSize: 11 }}>{k}</div>
+                              <div style={{ color: C.text, wordBreak: "break-all" }}>{v}</div>
+                            </div>
+                          ))}
+                        </div>
+                        {tcRegisterResult.client_secret && (
+                          <div style={{ marginTop: 12, padding: "10px 14px", background: C.dangerLight, borderRadius: 6, border: `1px solid ${C.danger}` }}>
+                            <div style={{ fontWeight: 700, color: C.danger, fontSize: 12, marginBottom: 4 }}>Client Secret — copy this now, it will not be shown again</div>
+                            <code style={{ fontSize: 12, wordBreak: "break-all", color: C.text }}>{tcRegisterResult.client_secret}</code>
+                          </div>
+                        )}
+                        {tcRegisterResult.permissions_failed?.length > 0 && (
+                          <div style={{ marginTop: 10, fontSize: 12, color: C.warning }}>
+                            <strong>Permissions not auto-granted</strong> (grant manually in Entra ID → API permissions):<br />
+                            {tcRegisterResult.permissions_failed.join(", ")}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </Card>
+              )}
+
+              {/* Save bar */}
+              <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 16, padding: "16px 0", borderTop: `1px solid ${C.border}` }}>
+                <span style={{ fontSize: 12, color: C.textLight }}>
+                  Secrets are stored locally and never committed to version control.
+                </span>
+                {btn(tcSaving ? "Saving…" : "Save Configuration", saveTenantConfig, tcSaving, C.gcp, "#fff")}
+              </div>
+            </div>
+          );
+        })()}
 
       </main>
 

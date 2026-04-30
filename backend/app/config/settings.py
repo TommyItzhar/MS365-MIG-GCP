@@ -261,21 +261,22 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_gcp_bucket(self) -> "Settings":
-        # Bucket can be satisfied by the active environment override
+        import logging as _logging
         active_env = self.get_active_environment()
         bucket = (
             self.gcp.gcs_bucket
             or (active_env.gcp_gcs_bucket if active_env else "")
         )
         if not bucket:
-            raise ValueError(
-                "GCS bucket must be set via GCP_GCS_BUCKET, "
-                "gcp.gcs_bucket in config.yaml, or an active environment block."
+            _logging.getLogger(__name__).warning(
+                "GCS bucket not configured — set it in the Tenants Connection UI "
+                "or via GCP_GCS_BUCKET / gcp.gcs_bucket in config.yaml."
             )
         return self
 
     @model_validator(mode="after")
     def validate_gcp_project(self) -> "Settings":
+        import logging as _logging
         active_env = self.get_active_environment()
         project = (
             self.gcp.project_id
@@ -283,9 +284,9 @@ class Settings(BaseSettings):
             or self.gcp_tenant.project_id
         )
         if not project:
-            raise ValueError(
-                "GCP project must be set via GCP_PROJECT_ID, "
-                "gcp.project_id, gcp_tenant.project_id, or an active environment block."
+            _logging.getLogger(__name__).warning(
+                "GCP project not configured — set it in the Tenants Connection UI "
+                "or via GCP_PROJECT_ID / gcp.project_id in config.yaml."
             )
         return self
 

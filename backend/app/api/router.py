@@ -511,6 +511,86 @@ class ValidateRequest(BaseModel):
     gcp_project_id: Optional[str] = None
 
 
+class TenantConfigPayload(BaseModel):
+    """All tenant connection fields saved from the UI."""
+
+    # Microsoft 365 / Azure
+    azure_tenant_id: str = ""
+    azure_tenant_domain: str = ""
+    azure_client_id: str = ""
+    azure_client_secret: str = ""
+    # Google Cloud Platform
+    gcp_project_id: str = ""
+    gcp_gcs_bucket: str = ""
+    gcp_region: str = "us-central1"
+    gcp_firestore_database: str = "(default)"
+    gcp_service_account_json: str = ""
+    # Active environment
+    active_environment: str = "dev"
+
+
+@router.get("/setup/tenant-config")
+async def get_tenant_config() -> dict[str, Any]:
+    """Return the current tenant config with secrets masked."""
+    from app.setup.tenant_store import get_tenant_store
+    return get_tenant_store().masked()
+
+
+@router.post("/setup/tenant-config")
+async def save_tenant_config(payload: TenantConfigPayload) -> dict[str, Any]:
+    """Save tenant config to local store and propagate non-secrets to config.yaml."""
+    from app.setup.tenant_store import get_tenant_store
+
+    get_tenant_store().save(payload.model_dump())
+
+    # Propagate non-secret fields to config.yaml so the rest of the app sees them
+    try:
+        config_path = _get_config_path()
+        with config_path.open() as fh:
+            config: dict[str, Any] = yaml.safe_load(fh) or {}
+
+        if payload.azure_tenant_id:
+            config.setdefault("azure_tenant", {})["tenant_id"] = payload.azure_tenant_id
+        if payload.azure_tenant_domain:
+            config.setdefault("azure_tenant", {})["tenant_domain"] = payload.azure_tenant_domain
+        if payload.gcp_project_id:
+            config.setdefault("gcp", {})["project_id"] = payload.gcp_project_id
+            config.setdefault("gcp_tenant", {})["project_id"] = payload.gcp_project_id
+        if payload.gcp_gcs_bucket:
+            config.setdefault("gcp", {})["gcs_bucket"] = payload.gcp_gcs_bucket
+        if payload.gcp_region:
+            config.setdefault("gcp", {})["region"] = payload.gcp_region
+        if payload.gcp_firestore_database:
+            config.setdefault("gcp", {})["firestore_database"] = payload.gcp_firestore_database
+
+        # Update the active environment block
+        if payload.active_environment in ("dev", "test", "prod"):
+            envs = config.setdefault("environments", {})
+            for name in ("dev", "test", "prod"):
+                envs.setdefault(name, {})["active"] = (name == payload.active_environment)
+            active = envs.setdefault(payload.active_environment, {})
+            if payload.azure_tenant_id:
+                active.setdefault("azure", {})["tenant_id"] = payload.azure_tenant_id
+            if payload.azure_client_id:
+                active.setdefault("azure", {})["client_id"] = payload.azure_client_id
+            if payload.gcp_project_id:
+                active.setdefault("gcp", {})["project_id"] = payload.gcp_project_id
+            if payload.gcp_gcs_bucket:
+                active.setdefault("gcp", {})["gcs_bucket"] = payload.gcp_gcs_bucket
+            if payload.gcp_region:
+                active.setdefault("gcp", {})["region"] = payload.gcp_region
+
+        with config_path.open("w") as fh:
+            yaml.dump(config, fh, default_flow_style=False, allow_unicode=True, sort_keys=False)
+
+        from app.config.settings import get_settings
+        get_settings.cache_clear()
+    except Exception as exc:
+        logger.warning("Could not update config.yaml after tenant save: %s", exc)
+
+    return {"ok": True, "message": "Configuration saved successfully"}
+
+
 @router.post("/setup/validate")
 async def validate_credentials(
     request: ValidateRequest = Body(default_factory=ValidateRequest),
