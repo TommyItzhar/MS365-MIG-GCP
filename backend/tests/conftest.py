@@ -17,14 +17,6 @@ from app.models import (
 )
 
 
-@pytest.fixture(scope="session")
-def event_loop():
-    """Single event loop for the entire test session."""
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
-
-
 @pytest.fixture
 def mock_settings(monkeypatch):
     """Patch settings to use test values without requiring real GCP/M365."""

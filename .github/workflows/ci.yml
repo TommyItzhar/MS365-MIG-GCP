@@ -32,10 +32,10 @@ jobs:
       - name: Install linters
         run: pip install --quiet ruff
 
-      - name: Ruff lint (report only)
+      - name: Ruff lint
         run: ruff check . || true
 
-      - name: Ruff format check (report only)
+      - name: Ruff format check
         run: ruff format --check . || true
 
   # ── Python backend — tests ──────────────────────────────────────────────
@@ -67,7 +67,7 @@ jobs:
         run: pip install --quiet -r requirements-ci.txt
 
       - name: Run tests
-        run: pytest tests/test_api.py -v --tb=short --no-header -p no:warnings --override-ini="addopts="
+        run: pytest tests/test_api.py -v --tb=short --no-header --no-cov
 
   # ── Frontend — build ────────────────────────────────────────────────────
   frontend-build:
@@ -82,7 +82,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
 
       - name: Install dependencies
         run: npm install --silent
