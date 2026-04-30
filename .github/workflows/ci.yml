@@ -33,7 +33,7 @@ jobs:
         run: pip install --quiet ruff
 
       - name: Ruff lint (report only)
-        run: ruff check . --output-format=github || true
+        run: ruff check . || true
 
       - name: Ruff format check (report only)
         run: ruff format --check . || true
@@ -67,7 +67,7 @@ jobs:
         run: pip install --quiet -r requirements-ci.txt
 
       - name: Run tests
-        run: pytest tests/test_api.py -v --tb=short --no-header -p no:warnings
+        run: pytest tests/test_api.py -v --tb=short --no-header -p no:warnings --override-ini="addopts="
 
   # ── Frontend — build ────────────────────────────────────────────────────
   frontend-build:
