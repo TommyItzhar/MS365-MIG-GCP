@@ -8,11 +8,6 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.config.settings import get_settings
-from app.monitoring.monitoring import configure_logging
-
-settings = get_settings()
-configure_logging(settings.log_level)
 logger = logging.getLogger(__name__)
 
 # Global mutable state shared between the app lifecycle and route handlers.
@@ -67,6 +62,12 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
+    from app.config.settings import get_settings
+    from app.monitoring.monitoring import configure_logging
+
+    settings = get_settings()
+    configure_logging(settings.log_level)
+
     app = FastAPI(
         title="MS365 → GCP Migration Engine",
         version="2.0.0",
