@@ -27,9 +27,6 @@ COPY --from=builder /install /usr/local
 WORKDIR /app
 COPY . .
 
-# Copy config directory (non-secret config.yaml)
-COPY ../config /app/config
-
 # Non-root user for security
 RUN addgroup --gid 1001 appgroup && \
     adduser --uid 1001 --gid 1001 --no-create-home --disabled-password appuser && \
