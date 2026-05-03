@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 import google.auth
+import google.auth.exceptions
 import google.auth.transport.requests
 import msal
 from google.cloud import secretmanager
@@ -175,10 +176,21 @@ class AuthManager:
                 logger.info("gcp_auth_adc_fallback")
         else:
             # Workload Identity / Application Default Credentials
-            self._gcp_credentials, _ = google.auth.default(
-                scopes=GCP_AUTH_SCOPES
-            )
-            logger.info("gcp_auth_adc")
+            try:
+                self._gcp_credentials, _ = google.auth.default(
+                    scopes=GCP_AUTH_SCOPES
+                )
+                logger.info("gcp_auth_adc")
+            except google.auth.exceptions.DefaultCredentialsError:
+                # No ADC in local dev without a service account — that's OK.
+                # GCP operations will fail at runtime, but the app can still
+                # start so the Tenants Connection UI is accessible.
+                self._gcp_credentials = None
+                logger.warning(
+                    "gcp_auth_no_credentials — running without GCP. "
+                    "Configure a service account in Tenants Connection or set "
+                    "GOOGLE_APPLICATION_CREDENTIALS to enable GCP features."
+                )
 
     # ── Public API ─────────────────────────────────────────────────────────
 

@@ -17,9 +17,15 @@ app_state: dict[str, Any] = {}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialise all singletons on startup; tear down cleanly on shutdown."""
+    """Initialise all singletons on startup; tear down cleanly on shutdown.
+
+    In development the app starts even without GCP/M365 credentials so the
+    Tenants Connection UI is accessible for initial configuration.
+    Migration endpoints return 503 until credentials are provided.
+    """
     logger.info("migration_engine_startup")
 
+    from app.config.settings import get_settings
     from app.auth.auth_manager import AuthManager
     from app.errors.error_handler import DLQPublisher, ErrorAggregator
     from app.monitoring.monitoring import MetricsReporter
@@ -28,35 +34,45 @@ async def lifespan(app: FastAPI):
     from app.throttle.throttle_manager import ThrottleManager
     from app.writers.gcs_writer import GCSWriter
 
-    auth = await AuthManager.create()
-    throttle = ThrottleManager()
-    state = StateManager()
-    gcs = GCSWriter()
-    metrics = MetricsReporter()
-    errors = ErrorAggregator()
-    dlq = DLQPublisher()
+    settings = get_settings()
 
-    orchestrator = JobOrchestrator(
-        auth=auth,
-        throttle=throttle,
-        state=state,
-        gcs=gcs,
-        metrics=metrics,
-        errors=errors,
-        dlq=dlq,
-    )
+    try:
+        auth = await AuthManager.create()
+        throttle = ThrottleManager()
+        state = StateManager()
+        gcs = GCSWriter()
+        metrics = MetricsReporter()
+        errors = ErrorAggregator()
+        dlq = DLQPublisher()
 
-    app_state.update(
-        auth=auth,
-        throttle=throttle,
-        state=state,
-        gcs=gcs,
-        metrics=metrics,
-        errors=errors,
-        dlq=dlq,
-        orchestrator=orchestrator,
-    )
-    logger.info("migration_engine_ready")
+        orchestrator = JobOrchestrator(
+            auth=auth,
+            throttle=throttle,
+            state=state,
+            gcs=gcs,
+            metrics=metrics,
+            errors=errors,
+            dlq=dlq,
+        )
+
+        app_state.update(
+            auth=auth, throttle=throttle, state=state,
+            gcs=gcs, metrics=metrics, errors=errors,
+            dlq=dlq, orchestrator=orchestrator,
+        )
+        logger.info("migration_engine_ready")
+
+    except Exception as exc:
+        if settings.environment == "development":
+            # Degraded start — health + setup endpoints still work.
+            # Admin uses Tenants Connection UI to add credentials.
+            logger.warning(
+                "migration_engine_degraded — credentials not configured: %s. "
+                "Open http://localhost:3000 and go to Tenants Connection.", exc
+            )
+        else:
+            raise  # Hard failure in staging / production
+
     yield
     logger.info("migration_engine_shutdown")
 
