@@ -28,7 +28,8 @@ services:
       gcloud emulators firestore start
       --host-port=0.0.0.0:8080
       --project=migration-dev-local
-    ports: ["8080:8080"]
+    # No host-port binding — only reachable inside the Docker network
+    expose: ["8080"]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080"]
       interval: 10s
