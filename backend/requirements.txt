@@ -1,29 +1,29 @@
-# ─────────────────────────────────────────────────────────────────────────── #
-# MS365 → GCP Migration Engine — Python dependencies (pinned)
-# ─────────────────────────────────────────────────────────────────────────── #
+# MS365 → GCP Migration Engine — Python dependencies
+# GCP packages use compatible-release (~=) to allow pip to resolve
+# inter-package protobuf/grpcio conflicts automatically.
 
-# Web framework (async)
+# Web framework
 fastapi==0.115.6
 uvicorn[standard]==0.32.1
 pydantic==2.10.3
 pydantic-settings==2.6.1
 
-# Async HTTP (Graph API)
+# Async HTTP (Microsoft Graph API)
 httpx==0.28.1
 
 # Microsoft Authentication Library
 msal==1.31.0
 
-# Google Cloud SDKs
-google-cloud-storage==2.19.0
-google-cloud-firestore==2.19.1
-google-cloud-bigquery==3.27.0
-google-cloud-pubsub==2.27.1
-google-cloud-tasks==2.17.1
-google-cloud-secret-manager==2.21.1
-google-cloud-monitoring==2.24.0
-google-auth==2.37.0
-google-api-core==2.23.0
+# Google Cloud SDKs — compatible-release to let pip resolve protobuf/grpc conflicts
+google-cloud-storage~=2.19
+google-cloud-firestore~=2.19
+google-cloud-bigquery~=3.27
+google-cloud-pubsub~=2.27
+google-cloud-tasks~=2.17
+google-cloud-secret-manager~=2.21
+google-cloud-monitoring~=2.24
+google-auth~=2.37
+google-api-core~=2.23
 
 # Configuration
 pyyaml==6.0.2
@@ -32,9 +32,7 @@ python-dotenv==1.0.1
 # Structured logging
 python-json-logger==3.2.1
 
-# ─────────────────────────────────────────────────────────────────────────── #
 # Testing
-# ─────────────────────────────────────────────────────────────────────────── #
 pytest==8.3.4
 pytest-asyncio==0.24.0
 pytest-cov==6.0.0

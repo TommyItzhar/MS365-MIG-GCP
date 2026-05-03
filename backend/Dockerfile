@@ -7,12 +7,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential curl \
+        build-essential curl libssl-dev libffi-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install --prefix=/install -r requirements.txt
+RUN pip install --upgrade pip setuptools wheel \
+    && pip install --prefix=/install -r requirements.txt
 
 # ── Runtime stage ──────────────────────────────────────────────────────────
 FROM python:3.11-slim AS runtime
