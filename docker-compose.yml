@@ -31,9 +31,11 @@ services:
     # No host-port binding — only reachable inside the Docker network
     expose: ["8080"]
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      test: ["CMD", "bash", "-c", "echo > /dev/tcp/localhost/8080"]
       interval: 10s
-      retries: 5
+      timeout: 5s
+      retries: 8
+      start_period: 30s
 
   pubsub:
     image: google/cloud-sdk:latest
@@ -71,9 +73,11 @@ services:
       uvicorn main:app --host 0.0.0.0 --port 8080
       --reload --log-level debug
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v1/health"]
-      interval: 10s
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/v1/health', timeout=5)"]
+      interval: 15s
+      timeout: 10s
       retries: 5
+      start_period: 30s
 
   # ── Frontend (React/Vite + Nginx) ──────────────────────────────────────── #
   frontend:
