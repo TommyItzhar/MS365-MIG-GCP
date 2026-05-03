@@ -18,17 +18,17 @@ from typing import Optional
 from app.auth.auth_manager import AuthManager
 from app.config.settings import get_settings
 from app.errors.error_handler import DLQPublisher, ErrorAggregator
-from app.migrators.exchange_migrator import ExchangeMigrator
-from app.migrators.forms_migrator import FormsMigrator
-from app.migrators.groups_migrator import GroupsMigrator
-from app.migrators.identity_migrator import IdentityMigrator
-from app.migrators.intune_migrator import IntuneMigrator
-from app.migrators.onedrive_migrator import OneDriveMigrator
-from app.migrators.planner_migrator import PlannerMigrator
-from app.migrators.powerautomate_migrator import PowerAutomateMigrator
-from app.migrators.sharepoint_migrator import SharePointMigrator
-from app.migrators.teams_migrator import TeamsMigrator
-from app.migrators.chat_migrator import ChatMigrator
+from app.migrators.m365_to_gcp.exchange_migrator import ExchangeMigrator
+from app.migrators.m365_to_gcp.forms_migrator import FormsMigrator
+from app.migrators.m365_to_gcp.groups_migrator import GroupsMigrator
+from app.migrators.m365_to_gcp.identity_migrator import IdentityMigrator
+from app.migrators.m365_to_gcp.intune_migrator import IntuneMigrator
+from app.migrators.m365_to_gcp.onedrive_migrator import OneDriveMigrator
+from app.migrators.m365_to_gcp.planner_migrator import PlannerMigrator
+from app.migrators.m365_to_gcp.powerautomate_migrator import PowerAutomateMigrator
+from app.migrators.m365_to_gcp.sharepoint_migrator import SharePointMigrator
+from app.migrators.m365_to_gcp.teams_migrator import TeamsMigrator
+from app.migrators.m365_to_gcp.chat_migrator import ChatMigrator
 from app.models import (
     MigrationManifest,
     MigrationScope,

@@ -11,9 +11,13 @@ from pydantic import BaseModel, Field
 
 from app.models import (
     ErrorLogEntry,
+    GWMigrationStatusResponse,
+    GWWorkloadType,
+    MigrationDirection,
     MigrationJob,
     MigrationJobStatus,
     MigrationStatusResponse,
+    StartGWMigrationRequest,
     StartMigrationRequest,
     WorkloadProgress,
     WorkloadType,
@@ -49,9 +53,22 @@ def get_orchestrator():
     if "orchestrator" not in app_state:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Orchestrator not initialised",
+            detail="M365→GCP orchestrator not initialised",
         )
     return app_state["orchestrator"]
+
+
+def get_gw_orchestrator():
+    from app.main import app_state
+    if "gw_orchestrator" not in app_state:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "GW→M365 orchestrator not initialised. "
+                "Configure GW service account credentials in Tenants Connection first."
+            ),
+        )
+    return app_state["gw_orchestrator"]
 
 
 def get_state():
@@ -514,17 +531,22 @@ class ValidateRequest(BaseModel):
 class TenantConfigPayload(BaseModel):
     """All tenant connection fields saved from the UI."""
 
-    # Microsoft 365 / Azure
+    # Microsoft 365 / Azure (destination for M365→GCP; source+destination for GW→M365)
     azure_tenant_id: str = ""
     azure_tenant_domain: str = ""
     azure_client_id: str = ""
     azure_client_secret: str = ""
-    # Google Cloud Platform
+    # Google Cloud Platform (destination for M365→GCP)
     gcp_project_id: str = ""
     gcp_gcs_bucket: str = ""
     gcp_region: str = "us-central1"
     gcp_firestore_database: str = "(default)"
     gcp_service_account_json: str = ""
+    # Google Workspace (source for GW→M365 reverse migration)
+    gw_domain: str = ""
+    gw_admin_email: str = ""
+    gw_customer_id: str = ""
+    gw_service_account_json: str = ""
     # Active environment
     active_environment: str = "dev"
 
@@ -562,6 +584,14 @@ async def save_tenant_config(payload: TenantConfigPayload) -> dict[str, Any]:
             config.setdefault("gcp", {})["region"] = payload.gcp_region
         if payload.gcp_firestore_database:
             config.setdefault("gcp", {})["firestore_database"] = payload.gcp_firestore_database
+
+        # GW non-secret fields
+        if payload.gw_domain:
+            config.setdefault("google_workspace", {})["domain"] = payload.gw_domain
+        if payload.gw_admin_email:
+            config.setdefault("google_workspace", {})["admin_email"] = payload.gw_admin_email
+        if payload.gw_customer_id:
+            config.setdefault("google_workspace", {})["customer_id"] = payload.gw_customer_id
 
         # Update the active environment block
         if payload.active_environment in ("dev", "test", "prod"):
@@ -647,3 +677,177 @@ async def validate_credentials(
 
     overall_ok = all(r.get("ok", False) for r in results.values())
     return {"ok": overall_ok, "services": results}
+
+
+# ── GW → M365 migration (reverse direction) ────────────────────────────────
+
+
+@router.post("/gw-migrate/start", status_code=status.HTTP_202_ACCEPTED)
+async def start_gw_migration(
+    request: StartGWMigrationRequest,
+    gw_orchestrator=Depends(get_gw_orchestrator),
+) -> dict[str, str]:
+    """Start a Google Workspace → Microsoft 365 migration job.
+
+    **Prerequisites:**
+    - GW service account JSON with domain-wide delegation must be configured
+      in the Tenants Connection UI (field: GW Service Account JSON).
+    - The service account must be granted DWD in the Google Admin Console:
+      Admin Console → Security → API Controls → Domain-wide Delegation.
+    - The M365 app registration must have write permissions granted:
+      Mail.ReadWrite, Files.ReadWrite.All, Calendars.ReadWrite,
+      Contacts.ReadWrite, User.ReadWrite.All, Channel.Create,
+      ChannelMessage.Send, Directory.ReadWrite.All.
+
+    **Workloads:** gmail, drive, calendar, contacts, chat, identity
+
+    **user_mappings:** Maps GW email → M365 UPN.
+    If empty, the same address is assumed for both sides.
+    """
+    from app.models import GWMigrationScope
+    scope = GWMigrationScope(
+        gw_domain=request.gw_domain,
+        m365_tenant_id=request.m365_tenant_id,
+        workloads=request.workloads,
+        user_mappings=request.user_mappings,
+        start_date=request.start_date,
+        end_date=request.end_date,
+        include_shared_drives=request.include_shared_drives,
+    )
+    job_id = await gw_orchestrator.start(scope)
+    return {
+        "job_id": job_id,
+        "status": "started",
+        "direction": MigrationDirection.GW_TO_M365.value,
+    }
+
+
+@router.post("/gw-migrate/pause")
+async def pause_gw_migration(
+    job_id: str = Query(...),
+    gw_orchestrator=Depends(get_gw_orchestrator),
+) -> dict[str, str]:
+    """Pause a running GW→M365 migration job."""
+    await gw_orchestrator.pause(job_id)
+    return {"job_id": job_id, "status": "paused"}
+
+
+@router.post("/gw-migrate/resume")
+async def resume_gw_migration(
+    job_id: str = Query(...),
+    gw_orchestrator=Depends(get_gw_orchestrator),
+) -> dict[str, str]:
+    """Resume a paused GW→M365 migration job."""
+    await gw_orchestrator.resume(job_id)
+    return {"job_id": job_id, "status": "resumed"}
+
+
+@router.post("/gw-migrate/cancel")
+async def cancel_gw_migration(
+    job_id: str = Query(...),
+    gw_orchestrator=Depends(get_gw_orchestrator),
+) -> dict[str, str]:
+    """Cancel a GW→M365 migration job."""
+    await gw_orchestrator.cancel(job_id)
+    return {"job_id": job_id, "status": "cancelled"}
+
+
+@router.get("/gw-migrate/status")
+async def get_gw_migration_status(
+    job_id: str = Query(...),
+    state=Depends(get_state),
+) -> dict[str, Any]:
+    """Get current status of a GW→M365 migration job."""
+    job = await state.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"GW job {job_id} not found")
+    return {
+        "job_id": job_id,
+        "direction": MigrationDirection.GW_TO_M365.value,
+        "status": job.status.value if hasattr(job.status, "value") else job.status,
+        "workload_progress": {
+            k: v.model_dump(mode="json")
+            for k, v in job.workload_progress.items()
+        },
+    }
+
+
+@router.get("/gw-migrate/workloads")
+async def list_gw_workloads() -> dict[str, Any]:
+    """List all supported GW→M365 workloads with their descriptions."""
+    return {
+        "direction": MigrationDirection.GW_TO_M365.value,
+        "workloads": {
+            GWWorkloadType.GMAIL.value: {
+                "label": "Gmail → Exchange Online",
+                "description": "Migrates all Gmail messages preserving folder structure and read state.",
+                "requires_permissions": ["gmail.readonly"],
+            },
+            GWWorkloadType.DRIVE.value: {
+                "label": "Google Drive → OneDrive",
+                "description": "Migrates Drive files; Google Workspace formats are converted to Office formats.",
+                "requires_permissions": ["drive.readonly"],
+            },
+            GWWorkloadType.CALENDAR.value: {
+                "label": "Google Calendar → Outlook Calendar",
+                "description": "Migrates calendar events including attendees and recurrence rules.",
+                "requires_permissions": ["calendar.readonly"],
+            },
+            GWWorkloadType.CONTACTS.value: {
+                "label": "Google Contacts → Outlook Contacts",
+                "description": "Migrates contacts with phone numbers, addresses, and job information.",
+                "requires_permissions": ["contacts.readonly"],
+            },
+            GWWorkloadType.CHAT.value: {
+                "label": "Google Chat → Microsoft Teams",
+                "description": "Migrates Chat spaces to Teams channels. DMs are not migrated.",
+                "requires_permissions": ["chat.messages.readonly", "chat.spaces.readonly"],
+            },
+            GWWorkloadType.IDENTITY.value: {
+                "label": "Google Directory → Entra ID",
+                "description": "Creates/updates users in Entra ID. Requires Admin SDK delegation.",
+                "requires_permissions": [
+                    "admin.directory.user.readonly",
+                    "admin.directory.group.readonly",
+                ],
+            },
+        },
+    }
+
+
+@router.post("/setup/validate-gw")
+async def validate_gw_credentials() -> dict[str, Any]:
+    """Validate the configured Google Workspace service account credentials.
+
+    Tests domain-wide delegation by attempting to list users via the Admin SDK.
+    Requires a GW service account JSON in the Tenants Connection UI.
+    """
+    from app.setup.tenant_store import get_tenant_store
+    store = get_tenant_store()
+    config = store.load()
+
+    if not config.get("gw_service_account_json"):
+        return {
+            "ok": False,
+            "error": "No GW service account JSON configured. Add it in Tenants Connection.",
+        }
+    if not config.get("gw_admin_email"):
+        return {
+            "ok": False,
+            "error": "No GW admin email configured. Set it in Tenants Connection.",
+        }
+
+    try:
+        from app.auth.gw_auth_manager import GWAuthManager
+        gw_auth = await GWAuthManager.create()
+        users = await gw_auth.list_workspace_users(
+            admin_email=config["gw_admin_email"]
+        )
+        return {
+            "ok": True,
+            "user_count": len(users),
+            "message": f"Domain-wide delegation validated — {len(users)} active users found.",
+        }
+    except Exception as exc:
+        logger.warning("gw_credential_validation_failed", extra={"error": str(exc)})
+        return {"ok": False, "error": str(exc)}

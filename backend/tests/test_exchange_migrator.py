@@ -8,7 +8,7 @@ import pytest
 import respx
 import httpx
 
-from app.migrators.exchange_migrator import ExchangeMigrator
+from app.migrators.m365_to_gcp.exchange_migrator import ExchangeMigrator
 from app.models import MigrationItem, MigrationScope, WorkloadType
 
 

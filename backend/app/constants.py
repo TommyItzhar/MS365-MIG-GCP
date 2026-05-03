@@ -155,3 +155,28 @@ SECRET_MS365_TENANT_ID: Final[str] = "ms365-tenant-id"
 SECRET_MS365_CLIENT_ID: Final[str] = "ms365-client-id"
 SECRET_MS365_CLIENT_SECRET: Final[str] = "ms365-client-secret"
 SECRET_GCP_SA_KEY: Final[str] = "gcp-service-account-key"
+SECRET_GW_SA_KEY: Final[str] = "gw-service-account-key"
+
+# ─────────────────────────────────────────────────────────────────────────── #
+# Google Workspace → M365 migration constants
+# ─────────────────────────────────────────────────────────────────────────── #
+GW_GMAIL_MAX_RESULTS: Final[int] = 500
+GW_DRIVE_MAX_RESULTS: Final[int] = 1000
+GW_CALENDAR_MAX_RESULTS: Final[int] = 2500
+GW_CONTACTS_MAX_RESULTS: Final[int] = 2000
+
+# M365 write permissions required for GW→M365 migration
+GRAPH_WRITE_PERMISSIONS: Final[list[str]] = [
+    "Mail.ReadWrite",
+    "Files.ReadWrite.All",
+    "Calendars.ReadWrite",
+    "Contacts.ReadWrite",
+    "User.ReadWrite.All",
+    "Channel.Create",
+    "ChannelMessage.Send",
+    "Directory.ReadWrite.All",
+]
+
+# Firestore collection for GW migration jobs
+FS_GW_JOBS: Final[str] = "gw_migration_jobs"
+FS_GW_ITEMS: Final[str] = "gw_migration_items"

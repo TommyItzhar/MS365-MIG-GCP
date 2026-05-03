@@ -107,6 +107,32 @@ class EnvironmentOverride(BaseSettings):
         )
 
 
+class GWSettings(BaseSettings):
+    """Google Workspace source tenant configuration (GW → M365 direction).
+
+    The service account JSON key is NOT stored here — it lives in
+    TenantConfigStore (local JSON, base64-obfuscated) or Secret Manager.
+    Only non-secret metadata is kept in settings.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="GW_", extra="ignore")
+
+    domain: str = Field(
+        default_factory=lambda: _yaml_val("google_workspace.domain", "")
+    )
+    admin_email: str = Field(
+        default_factory=lambda: _yaml_val("google_workspace.admin_email", ""),
+        description="GW super-admin email used for domain-wide delegation",
+    )
+    customer_id: str = Field(
+        default_factory=lambda: _yaml_val("google_workspace.customer_id", ""),
+        description="Google Workspace customer ID (e.g. C0xxxxx)",
+    )
+    include_shared_drives: bool = Field(
+        default_factory=lambda: _yaml_val("google_workspace.include_shared_drives", False)
+    )
+
+
 class M365Settings(BaseSettings):
     """Microsoft 365 / Entra ID credentials (resolved from Secret Manager)."""
 
@@ -232,9 +258,10 @@ class Settings(BaseSettings):
     azure_tenant: AzureTenantConfig = Field(default_factory=AzureTenantConfig)
     gcp_tenant: GCPTenantConfig = Field(default_factory=GCPTenantConfig)
 
-    # ── Sub-configurations ─────────────────────────────────────────────────
+    # ── Sub-configurations ────────────────────────────────────��────────────
     m365: M365Settings = Field(default_factory=M365Settings)
     gcp: GCPSettings = Field(default_factory=GCPSettings)
+    gw: GWSettings = Field(default_factory=GWSettings)
     workloads: WorkloadConfig = Field(default_factory=WorkloadConfig)
 
     # ── Migration engine ───────────────────────────────────────────────────

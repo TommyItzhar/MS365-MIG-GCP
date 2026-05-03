@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Any, AsyncIterator, Optional
 
 from app.constants import CHECKPOINT_INTERVAL, DELTA_TOKEN_MAX_AGE_DAYS
-from app.migrators.base_migrator import BaseMigrator
+from app.migrators.m365_to_gcp.base_migrator import BaseMigrator
 from app.models import (
     Checkpoint,
     ManifestItem,

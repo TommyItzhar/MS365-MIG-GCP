@@ -7,7 +7,7 @@ import httpx
 import pytest
 import respx
 
-from app.migrators.onedrive_migrator import OneDriveMigrator
+from app.migrators.m365_to_gcp.onedrive_migrator import OneDriveMigrator
 from app.models import MigrationItem, MigrationScope, WorkloadType
 
 

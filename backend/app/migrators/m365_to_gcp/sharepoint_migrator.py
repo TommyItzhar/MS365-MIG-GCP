@@ -17,7 +17,7 @@ from app.constants import (
     SHAREPOINT_INDEXED_PAGE_SIZE,
     SHAREPOINT_LIST_VIEW_THRESHOLD,
 )
-from app.migrators.base_migrator import BaseMigrator
+from app.migrators.m365_to_gcp.base_migrator import BaseMigrator
 from app.models import (
     Checkpoint,
     ManifestItem,

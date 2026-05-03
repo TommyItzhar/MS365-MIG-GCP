@@ -25,7 +25,7 @@ from app.constants import (
     GRAPH_BASE_URL,
     GRAPH_BETA_URL,
 )
-from app.migrators.base_migrator import BaseMigrator
+from app.migrators.m365_to_gcp.base_migrator import BaseMigrator
 from app.models import (
     BatchResult,
     Checkpoint,

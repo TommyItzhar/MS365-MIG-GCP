@@ -21,7 +21,11 @@ _CANDIDATES = [
     Path("config/tenant_settings.json"),
 ]
 
-_SECRET_KEYS = {"azure_client_secret", "gcp_service_account_json"}
+_SECRET_KEYS = {
+    "azure_client_secret",
+    "gcp_service_account_json",
+    "gw_service_account_json",   # GW → M365: service account key with DWD
+}
 _MASK = "••••••••"
 
 
@@ -87,6 +91,11 @@ class TenantConfigStore:
     def has_gcp(self) -> bool:
         cfg = self.load()
         return bool(cfg.get("gcp_project_id"))
+
+    def has_gw(self) -> bool:
+        """Return True if GW service account and admin email are configured."""
+        cfg = self.load()
+        return bool(cfg.get("gw_service_account_json") and cfg.get("gw_admin_email"))
 
 
 _store = TenantConfigStore()

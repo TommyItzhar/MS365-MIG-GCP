@@ -211,24 +211,41 @@ export default function MigrationPlatform() {
 
   // ── Tenants Connection state ─────────────────────────────────────────────
   const [tcConfig, setTcConfig] = useState({
+    // Microsoft 365 / Azure
     azure_tenant_id: "", azure_tenant_domain: "",
     azure_client_id: "", azure_client_secret: "",
+    // Google Cloud Platform (destination for M365→GCP)
     gcp_project_id: "", gcp_gcs_bucket: "",
     gcp_region: "us-central1", gcp_firestore_database: "(default)",
-    gcp_service_account_json: "", active_environment: "dev",
+    gcp_service_account_json: "",
+    // Google Workspace (source for GW→M365)
+    gw_domain: "", gw_admin_email: "", gw_customer_id: "",
+    gw_service_account_json: "",
+    active_environment: "dev",
   });
   const [tcLoading, setTcLoading] = useState(false);
   const [tcSaving, setTcSaving] = useState(false);
   const [tcAzureStatus, setTcAzureStatus] = useState(null);
   const [tcGcpStatus, setTcGcpStatus] = useState(null);
+  const [tcGwStatus, setTcGwStatus] = useState(null);
   const [tcAzureError, setTcAzureError] = useState(null);
   const [tcGcpError, setTcGcpError] = useState(null);
+  const [tcGwError, setTcGwError] = useState(null);
   const [tcShowSecret, setTcShowSecret] = useState(false);
   const [tcShowSaJson, setTcShowSaJson] = useState(false);
+  const [tcShowGwSaJson, setTcShowGwSaJson] = useState(false);
   const [tcRegisterOpen, setTcRegisterOpen] = useState(false);
   const [tcAdminToken, setTcAdminToken] = useState("");
   const [tcRegisterLoading, setTcRegisterLoading] = useState(false);
   const [tcRegisterResult, setTcRegisterResult] = useState(null);
+  // ── GW → M365 migration state ────────────────────────────────────────────
+  const [gwJobId, setGwJobId] = useState(null);
+  const [gwJobStatus, setGwJobStatus] = useState(null);
+  const [gwMigRunning, setGwMigRunning] = useState(false);
+  const [gwSelectedWorkloads, setGwSelectedWorkloads] = useState(["gmail","drive","calendar","contacts"]);
+  const [gwUserMappings, setGwUserMappings] = useState("");
+  const [gwStartDate, setGwStartDate] = useState("");
+  const [gwMigError, setGwMigError] = useState(null);
 
   const notify = (msg, type = "info") => {
     setNotification({ msg, type });
@@ -457,6 +474,66 @@ export default function MigrationPlatform() {
     finally { setTcRegisterLoading(false); }
   };
 
+  const testGw = async () => {
+    setTcGwStatus("testing"); setTcGwError(null);
+    try {
+      const res = await fetch("/api/v1/setup/validate-gw", { method: "POST" });
+      const data = await res.json();
+      if (data.ok) { setTcGwStatus("ok"); }
+      else { setTcGwStatus("error"); setTcGwError(data.error || "Validation failed"); }
+    } catch (_) { setTcGwStatus("error"); setTcGwError("Network error"); }
+  };
+
+  const startGwMigration = async () => {
+    setGwMigError(null); setGwMigRunning(true);
+    try {
+      let userMappings = {};
+      if (gwUserMappings.trim()) {
+        for (const line of gwUserMappings.split("\n")) {
+          const [src, dst] = line.split("->").map(s => s.trim());
+          if (src && dst) userMappings[src] = dst;
+        }
+      }
+      const body = {
+        gw_domain: tcConfig.gw_domain,
+        m365_tenant_id: tcConfig.azure_tenant_id,
+        workloads: gwSelectedWorkloads,
+        user_mappings: userMappings,
+        start_date: gwStartDate || null,
+      };
+      const res = await fetch("/api/v1/gw-migrate/start", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setGwJobId(data.job_id); setGwJobStatus("running");
+        notify(`GW→M365 migration started — Job ${data.job_id}`, "success");
+      } else {
+        setGwMigError(data.detail || "Failed to start migration"); setGwMigRunning(false);
+      }
+    } catch (_) { setGwMigError("Backend unreachable"); setGwMigRunning(false); }
+  };
+
+  const pauseGwMigration = async () => {
+    if (!gwJobId) return;
+    await fetch(`/api/v1/gw-migrate/pause?job_id=${gwJobId}`, { method: "POST" });
+    setGwJobStatus("paused"); notify("GW migration paused", "info");
+  };
+
+  const resumeGwMigration = async () => {
+    if (!gwJobId) return;
+    await fetch(`/api/v1/gw-migrate/resume?job_id=${gwJobId}`, { method: "POST" });
+    setGwJobStatus("running"); notify("GW migration resumed", "info");
+  };
+
+  const cancelGwMigration = async () => {
+    if (!gwJobId) return;
+    await fetch(`/api/v1/gw-migrate/cancel?job_id=${gwJobId}`, { method: "POST" });
+    setGwJobId(null); setGwJobStatus(null); setGwMigRunning(false);
+    notify("GW migration cancelled", "info");
+  };
+
   const filteredDevices = devices.filter(d =>
     deviceSearch === "" ||
     d.display_name.toLowerCase().includes(deviceSearch.toLowerCase()) ||
@@ -479,6 +556,7 @@ export default function MigrationPlatform() {
     { id: "workplan", icon: "≡", label: "Workplan" },
     { id: "phases", icon: "◫", label: "Phases" },
     { id: "tenants", icon: "⚿", label: "Tenants Connection" },
+    { id: "gw_migration", icon: "↔", label: "GW → M365 Migration" },
   ];
 
   return (
@@ -1214,6 +1292,50 @@ export default function MigrationPlatform() {
                 </div>
               )}
 
+              {/* ── Google Workspace (GW → M365) ── */}
+              {!tcLoading && (
+                <Card style={{ padding: 0, overflow: "hidden", marginBottom: 24, border: `1px solid ${C.gcpMid}` }}>
+                  {sectionHeader("#1a73e8", "#e8f0fe", "G", "Google Workspace", "Source for GW → M365 reverse migration · Domain-Wide Delegation", tcGwStatus, tcGwError)}
+                  <div style={{ padding: 20 }}>
+                    <div style={{ background: "#e8f0fe", border: "1px solid #4285f4", borderRadius: 6, padding: "10px 14px", marginBottom: 16, fontSize: 12, color: "#1a73e8" }}>
+                      <strong>Domain-Wide Delegation required.</strong> The service account must be granted DWD in Google Admin Console →
+                      Security → API Controls → Domain-wide Delegation. Add the client ID with the required OAuth scopes before testing.
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                      {fieldRow("GW Domain", "e.g. yourcompany.com",
+                        inp(tcConfig.gw_domain, v => setTcConfig(p => ({ ...p, gw_domain: v })), "yourcompany.com")
+                      )}
+                      {fieldRow("Admin Email", "Super-admin account for DWD",
+                        inp(tcConfig.gw_admin_email, v => setTcConfig(p => ({ ...p, gw_admin_email: v })), "admin@yourcompany.com")
+                      )}
+                    </div>
+                    {fieldRow("Customer ID", "Google Admin Console → Account → Settings (optional, e.g. C0xxxxx)",
+                      inp(tcConfig.gw_customer_id, v => setTcConfig(p => ({ ...p, gw_customer_id: v })), "C0xxxxxx", "text", true)
+                    )}
+                    {fieldRow("Service Account JSON (with DWD)",
+                      <span>IAM → Service Accounts → Keys → <span style={{ color: "#1a73e8", fontWeight: 600 }}>Create key (JSON)</span></span>,
+                      <div style={{ position: "relative" }}>
+                        <textarea
+                          value={tcShowGwSaJson ? tcConfig.gw_service_account_json : (tcConfig.gw_service_account_json ? "••••••••  (click 👁 to reveal)" : "")}
+                          onChange={e => setTcConfig(p => ({ ...p, gw_service_account_json: e.target.value }))}
+                          onFocus={() => setTcShowGwSaJson(true)}
+                          placeholder='Paste full contents of your GW service account .json key file'
+                          rows={tcShowGwSaJson ? 5 : 2}
+                          style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12, color: C.text, background: C.surface, outline: "none", fontFamily: "'IBM Plex Mono', monospace", resize: "vertical" }}
+                        />
+                        <button onClick={() => setTcShowGwSaJson(v => !v)}
+                          style={{ position: "absolute", right: 8, top: 8, background: "none", border: "none", cursor: "pointer", fontSize: 14, color: C.textMuted }}>
+                          {tcShowGwSaJson ? "🙈" : "👁"}
+                        </button>
+                      </div>
+                    )}
+                    <div style={{ marginTop: 8 }}>
+                      {btn("Test GW Connection", testGw, tcGwStatus === "testing", "#1a73e8", "#fff")}
+                    </div>
+                  </div>
+                </Card>
+              )}
+
               {/* ── Auto App Registration panel ── */}
               {tcRegisterOpen && (
                 <Card style={{ marginBottom: 24, padding: 0, overflow: "hidden", border: `1px solid ${C.msMid}` }}>
@@ -1292,6 +1414,154 @@ export default function MigrationPlatform() {
                   Secrets are stored locally and never committed to version control.
                 </span>
                 {btn(tcSaving ? "Saving…" : "Save Configuration", saveTenantConfig, tcSaving, C.gcp, "#fff")}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* ── GW → M365 MIGRATION VIEW ── */}
+        {activeView === "gw_migration" && (() => {
+          const GW_WORKLOADS = [
+            { id: "gmail",    label: "Gmail → Exchange Online",  icon: "✉",  color: "#ea4335" },
+            { id: "drive",    label: "Drive → OneDrive",         icon: "📁", color: "#34a853" },
+            { id: "calendar", label: "Calendar → Outlook Cal.",  icon: "📅", color: "#fbbc04" },
+            { id: "contacts", label: "Contacts → Outlook Cont.", icon: "👤", color: "#1a73e8" },
+            { id: "chat",     label: "Chat → Teams",             icon: "💬", color: "#00897b" },
+            { id: "identity", label: "Directory → Entra ID",     icon: "🔑", color: "#7c3aed" },
+          ];
+          const toggleWorkload = (id) => setGwSelectedWorkloads(prev =>
+            prev.includes(id) ? prev.filter(w => w !== id) : [...prev, id]
+          );
+          const statusColor = { running: C.info, paused: C.warning, completed: C.success, cancelled: C.danger };
+          return (
+            <div>
+              <div style={{ marginBottom: 24, display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}>
+                <div>
+                  <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: C.text }}>GW → M365 Migration</h1>
+                  <p style={{ margin: "4px 0 0", color: C.textMuted, fontSize: 13 }}>
+                    Migrate from Google Workspace to Microsoft 365. Configure GW credentials in <strong>Tenants Connection</strong> first.
+                  </p>
+                </div>
+                <div style={{ padding: "6px 16px", background: "#e8f0fe", borderRadius: 20, fontSize: 12, fontWeight: 600, color: "#1a73e8", border: "1px solid #4285f4" }}>
+                  Direction: Google Workspace → Microsoft 365
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
+                {/* Left: job configuration */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+                  {/* Workload selector */}
+                  <Card>
+                    <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14, color: C.text }}>Select Workloads</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {GW_WORKLOADS.map(w => (
+                        <label key={w.id} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 12px", borderRadius: 8, border: `1px solid ${gwSelectedWorkloads.includes(w.id) ? w.color : C.border}`, background: gwSelectedWorkloads.includes(w.id) ? `${w.color}12` : C.surface, transition: "all 0.15s" }}>
+                          <input type="checkbox" checked={gwSelectedWorkloads.includes(w.id)} onChange={() => toggleWorkload(w.id)} style={{ accentColor: w.color, width: 16, height: 16 }} />
+                          <span style={{ fontSize: 18 }}>{w.icon}</span>
+                          <div>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{w.label}</div>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  </Card>
+
+                  {/* Date filter */}
+                  <Card>
+                    <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12, color: C.text }}>Date Filter (optional)</div>
+                    <div style={{ marginBottom: 4 }}>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: C.textMuted, display: "block", marginBottom: 4 }}>Migrate items after</label>
+                      <input type="date" value={gwStartDate} onChange={e => setGwStartDate(e.target.value)}
+                        style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, color: C.text, background: C.surface }} />
+                    </div>
+                    <div style={{ fontSize: 11, color: C.textLight, marginTop: 6 }}>Leave empty to migrate all historical data.</div>
+                  </Card>
+                </div>
+
+                {/* Right: user mappings + control */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+                  {/* User mappings */}
+                  <Card>
+                    <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6, color: C.text }}>User Mappings</div>
+                    <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 10 }}>
+                      One mapping per line: <code style={{ background: C.slateLight, padding: "1px 6px", borderRadius: 3 }}>gw@company.com → user@tenant.onmicrosoft.com</code><br />
+                      Leave empty to assume same email address on both sides.
+                    </div>
+                    <textarea
+                      value={gwUserMappings}
+                      onChange={e => setGwUserMappings(e.target.value)}
+                      placeholder={"alice@company.com -> alice@tenant.onmicrosoft.com\nbob@company.com -> bob@tenant.onmicrosoft.com"}
+                      rows={6}
+                      style={{ width: "100%", boxSizing: "border-box", padding: "8px 12px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12, color: C.text, background: C.surface, outline: "none", fontFamily: "'IBM Plex Mono', monospace", resize: "vertical" }}
+                    />
+                  </Card>
+
+                  {/* Control panel */}
+                  <Card>
+                    <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14, color: C.text }}>Migration Control</div>
+
+                    {/* Prerequisites check */}
+                    {(!tcConfig.gw_domain || !tcConfig.gw_admin_email || !tcConfig.gw_service_account_json) && (
+                      <div style={{ background: C.warningLight, border: `1px solid ${C.warning}`, borderRadius: 6, padding: "10px 14px", marginBottom: 14, fontSize: 12, color: C.warning }}>
+                        <strong>Prerequisites missing.</strong> Configure Google Workspace credentials in{" "}
+                        <button onClick={() => setActiveView("tenants")} style={{ background: "none", border: "none", color: C.warning, textDecoration: "underline", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
+                          Tenants Connection
+                        </button>{" "}before starting.
+                      </div>
+                    )}
+
+                    {gwMigError && (
+                      <div style={{ background: C.dangerLight, border: `1px solid ${C.danger}`, borderRadius: 6, padding: "10px 14px", marginBottom: 14, fontSize: 12, color: C.danger }}>
+                        {gwMigError}
+                      </div>
+                    )}
+
+                    {gwJobId && (
+                      <div style={{ marginBottom: 16, padding: "12px 16px", borderRadius: 8, background: C.slateLight, border: `1px solid ${C.border}` }}>
+                        <div style={{ fontSize: 12, color: C.textMuted }}>Active Job</div>
+                        <div style={{ fontFamily: "monospace", fontSize: 13, color: C.text, wordBreak: "break-all", marginTop: 2 }}>{gwJobId}</div>
+                        {gwJobStatus && (
+                          <span style={{ marginTop: 8, display: "inline-block", padding: "2px 10px", borderRadius: 12, fontSize: 11, fontWeight: 700, background: `${statusColor[gwJobStatus]}22`, color: statusColor[gwJobStatus] || C.textMuted }}>
+                            {gwJobStatus.toUpperCase()}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                      {!gwJobId && (
+                        <button
+                          onClick={startGwMigration}
+                          disabled={gwMigRunning || gwSelectedWorkloads.length === 0 || !tcConfig.gw_domain}
+                          style={{ padding: "9px 20px", borderRadius: 6, fontSize: 13, fontWeight: 700, cursor: "pointer", border: "none", background: "#1a73e8", color: "#fff", opacity: (gwMigRunning || gwSelectedWorkloads.length === 0 || !tcConfig.gw_domain) ? 0.5 : 1 }}>
+                          {gwMigRunning ? "Starting…" : "▶ Start Migration"}
+                        </button>
+                      )}
+                      {gwJobId && gwJobStatus === "running" && (
+                        <button onClick={pauseGwMigration} style={{ padding: "9px 20px", borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: "pointer", border: "none", background: C.warning, color: "#fff" }}>
+                          ⏸ Pause
+                        </button>
+                      )}
+                      {gwJobId && gwJobStatus === "paused" && (
+                        <button onClick={resumeGwMigration} style={{ padding: "9px 20px", borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: "pointer", border: "none", background: C.info, color: "#fff" }}>
+                          ▶ Resume
+                        </button>
+                      )}
+                      {gwJobId && (
+                        <button onClick={cancelGwMigration} style={{ padding: "9px 20px", borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: "pointer", border: `1.5px solid ${C.danger}`, background: "transparent", color: C.danger }}>
+                          ✕ Cancel
+                        </button>
+                      )}
+                    </div>
+
+                    <div style={{ marginTop: 16, padding: "10px 14px", background: C.slateLight, borderRadius: 6, fontSize: 11, color: C.textMuted, lineHeight: 1.6 }}>
+                      <strong style={{ color: C.text }}>Security:</strong> Credentials are never logged.
+                      GW service account impersonates each user via domain-wide delegation.
+                      M365 write tokens are scoped to the minimum required permissions.
+                      Temporary Entra ID passwords are generated on migration and must be distributed out-of-band.
+                    </div>
+                  </Card>
+                </div>
               </div>
             </div>
           );

@@ -24,7 +24,7 @@ from app.auth.auth_manager import AuthManager
 from app.config.settings import get_settings
 from app.discovery.discovery_engine import DiscoveryEngine, _build_migrator
 from app.errors.error_handler import DLQPublisher, ErrorAggregator
-from app.migrators.base_migrator import BaseMigrator
+from app.migrators.m365_to_gcp.base_migrator import BaseMigrator
 from app.models import (
     MigrationItem,
     MigrationJob,

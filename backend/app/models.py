@@ -14,6 +14,11 @@ from pydantic import BaseModel, Field, field_validator
 # ─────────────────────────────────────────────────────────────────────────── #
 
 
+class MigrationDirection(str, Enum):
+    M365_TO_GCP = "m365_to_gcp"
+    GW_TO_M365 = "gw_to_m365"
+
+
 class WorkloadType(str, Enum):
     EXCHANGE = "exchange"
     ONEDRIVE = "onedrive"
@@ -26,6 +31,15 @@ class WorkloadType(str, Enum):
     POWER_AUTOMATE = "power_automate"
     FORMS = "forms"
     PLANNER = "planner"
+
+
+class GWWorkloadType(str, Enum):
+    GMAIL = "gmail"
+    DRIVE = "drive"
+    CALENDAR = "calendar"
+    CONTACTS = "contacts"
+    CHAT = "chat"
+    IDENTITY = "identity"
 
 
 class ItemState(str, Enum):
@@ -317,3 +331,85 @@ class ContentHash(BaseModel):
     def from_bytes(cls, data: bytes) -> "ContentHash":
         digest = hashlib.sha256(data).hexdigest()
         return cls(algorithm="sha256", value=digest)
+
+
+# ─────────────────────────────────────────────────────────────────────────── #
+# Google Workspace → Microsoft 365 migration models
+# ─────────────────────────────────────────────────────────────────────────── #
+
+
+class GWMigrationItem(BaseModel):
+    """A single item to migrate from Google Workspace to Microsoft 365."""
+
+    id: str
+    job_id: str
+    workload: GWWorkloadType
+    source_user: str
+    destination_user: str
+    source_id: str
+    tenant_id: str
+    estimated_bytes: int = 0
+    content_hash: Optional[str] = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    state: ItemState = ItemState.PENDING
+    retry_count: int = 0
+    error_message: Optional[str] = None
+    error_type: Optional[ErrorType] = None
+    m365_id: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class GWMigrationScope(BaseModel):
+    """Scope for a Google Workspace → Microsoft 365 migration job."""
+
+    gw_domain: str
+    m365_tenant_id: str
+    workloads: list[GWWorkloadType]
+    user_mappings: dict[str, str] = Field(
+        default_factory=dict,
+        description="Maps GW email → M365 UPN. If empty, same address assumed.",
+    )
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    include_shared_drives: bool = False
+
+    @field_validator("workloads")
+    @classmethod
+    def at_least_one_workload(cls, v: list[GWWorkloadType]) -> list[GWWorkloadType]:
+        if not v:
+            raise ValueError("At least one workload must be specified")
+        return v
+
+
+class StartGWMigrationRequest(BaseModel):
+    """API request to start a GW→M365 migration job."""
+
+    gw_domain: str
+    m365_tenant_id: str
+    workloads: list[GWWorkloadType]
+    user_mappings: dict[str, str] = Field(default_factory=dict)
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    include_shared_drives: bool = False
+
+    @field_validator("workloads")
+    @classmethod
+    def at_least_one_workload(cls, v: list[GWWorkloadType]) -> list[GWWorkloadType]:
+        if not v:
+            raise ValueError("At least one workload must be specified")
+        return v
+
+
+class GWMigrationStatusResponse(BaseModel):
+    """Status response for a GW→M365 migration job."""
+
+    job_id: str
+    direction: MigrationDirection = MigrationDirection.GW_TO_M365
+    status: MigrationJobStatus
+    overall_progress_pct: float
+    workload_progress: dict[str, WorkloadProgress]
+    total_bytes_transferred: int
+    estimated_completion_seconds: Optional[float]
+    started_at: Optional[datetime]
+    elapsed_seconds: Optional[float]

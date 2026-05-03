@@ -25,6 +25,10 @@ google-cloud-monitoring~=2.24
 google-auth~=2.37
 google-api-core~=2.23
 
+# Google Workspace APIs (GW → M365 reverse migration)
+google-api-python-client~=2.157
+google-auth-httplib2~=0.2
+
 # Configuration
 pyyaml==6.0.2
 python-dotenv==1.0.1
