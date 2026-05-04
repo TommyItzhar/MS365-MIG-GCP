@@ -10,6 +10,8 @@ x-backend-env: &backend-env
   GCP_REGION: us-central1
   # Secret Manager disabled in dev — use env vars
   ENGINE_USE_SECRET_MANAGER: "false"
+  # Admin login password for the GUI — change in production!
+  ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
   MS365_TENANT_ID: ${MS365_TENANT_ID:-}
   MS365_CLIENT_ID: ${MS365_CLIENT_ID:-}
   MS365_CLIENT_SECRET: ${MS365_CLIENT_SECRET:-}

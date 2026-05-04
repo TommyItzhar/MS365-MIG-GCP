@@ -193,9 +193,156 @@ const OsIcon = ({ os }) => {
   return <span style={{ fontSize: 16 }}>{icons[os] || "💻"}</span>;
 };
 
+// ── Authenticated fetch helper ─────────────────────────────────────────────
+const apiFetch = (url, options = {}) => {
+  const token = localStorage.getItem("auth_token");
+  const headers = { ...(options.headers || {}) };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  return fetch(url, { ...options, headers }).then(res => {
+    if (res.status === 401) {
+      // Token expired or invalid — force re-login
+      localStorage.removeItem("auth_token");
+      localStorage.removeItem("auth_user");
+      window.location.reload();
+    }
+    return res;
+  });
+};
+
+// ── Main App ──────────────────────────────────────────────────────────────────
+
+// ── Login Page ───────────────────────────────────────────────────────────────
+function LoginPage({ onLogin }) {
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setLoading(true); setError(null);
+    try {
+      const res = await fetch("/api/v1/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        localStorage.setItem("auth_token", data.token);
+        localStorage.setItem("auth_user", data.user || "admin");
+        onLogin(data.token, data.user || "admin");
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setError(data.detail || "Invalid password");
+      }
+    } catch (_) {
+      setError("Backend unreachable. Is the backend running on :8080?");
+    } finally { setLoading(false); }
+  };
+
+  return (
+    <div style={{
+      minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
+      background: `linear-gradient(135deg, ${C.ms}08, ${C.gcp}08)`,
+      fontFamily: "'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif",
+    }}>
+      <form onSubmit={submit} style={{
+        width: 400, background: C.surface, borderRadius: 12, padding: 36,
+        boxShadow: "0 8px 32px rgba(0,0,0,0.08)", border: `1px solid ${C.border}`,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 24 }}>
+          <div style={{
+            width: 48, height: 48, borderRadius: 10,
+            background: `linear-gradient(135deg, ${C.ms}, ${C.gcp})`,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            color: "#fff", fontSize: 22, fontWeight: 700,
+          }}>↔</div>
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: C.text }}>Migration Platform</div>
+            <div style={{ fontSize: 11, color: C.textMuted, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+              Admin Sign In
+            </div>
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 18 }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: C.text, display: "block", marginBottom: 6 }}>
+            Admin Password
+          </label>
+          <input
+            type="password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            placeholder="Enter admin password"
+            autoFocus
+            style={{
+              width: "100%", boxSizing: "border-box",
+              padding: "10px 14px", border: `1.5px solid ${C.border}`,
+              borderRadius: 8, fontSize: 14, color: C.text,
+              background: C.surface, outline: "none",
+              transition: "border-color 0.15s",
+            }}
+            onFocus={e => e.target.style.borderColor = C.ms}
+            onBlur={e => e.target.style.borderColor = C.border}
+          />
+        </div>
+
+        {error && (
+          <div style={{
+            background: C.dangerLight, border: `1px solid ${C.danger}`,
+            color: C.danger, padding: "8px 12px", borderRadius: 6,
+            fontSize: 12, marginBottom: 16,
+          }}>{error}</div>
+        )}
+
+        <button
+          type="submit"
+          disabled={loading || !password}
+          style={{
+            width: "100%", padding: "10px 16px", borderRadius: 8,
+            border: "none", cursor: loading || !password ? "not-allowed" : "pointer",
+            background: `linear-gradient(135deg, ${C.ms}, ${C.gcp})`,
+            color: "#fff", fontSize: 14, fontWeight: 700,
+            opacity: loading || !password ? 0.5 : 1,
+            transition: "opacity 0.15s",
+          }}>
+          {loading ? "Signing in…" : "Sign In"}
+        </button>
+
+        <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${C.border}`, fontSize: 11, color: C.textLight, textAlign: "center" }}>
+          Default dev password is <code style={{ background: C.slateLight, padding: "1px 6px", borderRadius: 3, fontFamily: "monospace" }}>admin</code>.
+          Set <code style={{ background: C.slateLight, padding: "1px 6px", borderRadius: 3, fontFamily: "monospace" }}>ADMIN_PASSWORD</code> env var to change it.
+        </div>
+      </form>
+    </div>
+  );
+}
+
 // ── Main App ──────────────────────────────────────────────────────────────────
 
 export default function MigrationPlatform() {
+  // ── Authentication ───────────────────────────────────────────────────────
+  const [authToken, setAuthToken] = useState(() => localStorage.getItem("auth_token"));
+  const [authUser, setAuthUser] = useState(() => localStorage.getItem("auth_user") || "admin");
+
+  const handleLogin = (token, user) => {
+    setAuthToken(token); setAuthUser(user);
+  };
+  const handleLogout = () => {
+    localStorage.removeItem("auth_token");
+    localStorage.removeItem("auth_user");
+    setAuthToken(null);
+  };
+
+  // ── Migration direction (determines which views are shown) ───────────────
+  const [direction, setDirection] = useState(() => localStorage.getItem("mig_direction") || "m365_to_gcp");
+  const setDirectionPersist = (d) => {
+    localStorage.setItem("mig_direction", d);
+    setDirection(d);
+    // Reset to dashboard when switching direction
+    setActiveView("dashboard");
+  };
+
   const [activeView, setActiveView] = useState("dashboard");
   const [tasks, setTasks] = useState(() =>
     WORKPLAN.map((t, i) => ({ ...t, id: `task-${i}` }))
@@ -385,7 +532,7 @@ export default function MigrationPlatform() {
   const fetchTenantConfig = useCallback(async () => {
     setTcLoading(true);
     try {
-      const res = await fetch("/api/v1/setup/tenant-config");
+      const res = await apiFetch("/api/v1/setup/tenant-config");
       if (res.ok) {
         const data = await res.json();
         setTcConfig(prev => ({ ...prev, ...data }));
@@ -401,7 +548,7 @@ export default function MigrationPlatform() {
   const saveTenantConfig = async () => {
     setTcSaving(true);
     try {
-      const res = await fetch("/api/v1/setup/tenant-config", {
+      const res = await apiFetch("/api/v1/setup/tenant-config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(tcConfig),
@@ -420,7 +567,7 @@ export default function MigrationPlatform() {
         client_id: tcConfig.azure_client_id,
         client_secret: tcConfig.azure_client_secret !== "••••••••" ? tcConfig.azure_client_secret : undefined,
       };
-      const res = await fetch("/api/v1/setup/validate", {
+      const res = await apiFetch("/api/v1/setup/validate", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
@@ -434,7 +581,7 @@ export default function MigrationPlatform() {
   const testGcp = async () => {
     setTcGcpStatus("testing"); setTcGcpError(null);
     try {
-      const res = await fetch("/api/v1/setup/validate", {
+      const res = await apiFetch("/api/v1/setup/validate", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ gcp_project_id: tcConfig.gcp_project_id }),
       });
@@ -449,7 +596,7 @@ export default function MigrationPlatform() {
     if (!tcAdminToken.trim()) { notify("Paste a Global Admin access token first", "error"); return; }
     setTcRegisterLoading(true); setTcRegisterResult(null);
     try {
-      const res = await fetch("/api/v1/setup/register-azure-app", {
+      const res = await apiFetch("/api/v1/setup/register-azure-app", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           admin_token: tcAdminToken,
@@ -477,7 +624,7 @@ export default function MigrationPlatform() {
   const testGw = async () => {
     setTcGwStatus("testing"); setTcGwError(null);
     try {
-      const res = await fetch("/api/v1/setup/validate-gw", { method: "POST" });
+      const res = await apiFetch("/api/v1/setup/validate-gw", { method: "POST" });
       const data = await res.json();
       if (data.ok) { setTcGwStatus("ok"); }
       else { setTcGwStatus("error"); setTcGwError(data.error || "Validation failed"); }
@@ -501,7 +648,7 @@ export default function MigrationPlatform() {
         user_mappings: userMappings,
         start_date: gwStartDate || null,
       };
-      const res = await fetch("/api/v1/gw-migrate/start", {
+      const res = await apiFetch("/api/v1/gw-migrate/start", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
@@ -517,19 +664,19 @@ export default function MigrationPlatform() {
 
   const pauseGwMigration = async () => {
     if (!gwJobId) return;
-    await fetch(`/api/v1/gw-migrate/pause?job_id=${gwJobId}`, { method: "POST" });
+    await apiFetch(`/api/v1/gw-migrate/pause?job_id=${gwJobId}`, { method: "POST" });
     setGwJobStatus("paused"); notify("GW migration paused", "info");
   };
 
   const resumeGwMigration = async () => {
     if (!gwJobId) return;
-    await fetch(`/api/v1/gw-migrate/resume?job_id=${gwJobId}`, { method: "POST" });
+    await apiFetch(`/api/v1/gw-migrate/resume?job_id=${gwJobId}`, { method: "POST" });
     setGwJobStatus("running"); notify("GW migration resumed", "info");
   };
 
   const cancelGwMigration = async () => {
     if (!gwJobId) return;
-    await fetch(`/api/v1/gw-migrate/cancel?job_id=${gwJobId}`, { method: "POST" });
+    await apiFetch(`/api/v1/gw-migrate/cancel?job_id=${gwJobId}`, { method: "POST" });
     setGwJobId(null); setGwJobStatus(null); setGwMigRunning(false);
     notify("GW migration cancelled", "info");
   };
@@ -549,15 +696,24 @@ export default function MigrationPlatform() {
     return p ? p.color : C.slate;
   };
 
-  // Navigation
-  const NAV = [
-    { id: "dashboard", icon: "◈", label: "Dashboard" },
-    { id: "devices", icon: "⬡", label: "Devices" },
-    { id: "workplan", icon: "≡", label: "Workplan" },
-    { id: "phases", icon: "◫", label: "Phases" },
-    { id: "tenants", icon: "⚿", label: "Tenants Connection" },
-    { id: "gw_migration", icon: "↔", label: "GW → M365 Migration" },
+  // ── Direction-aware navigation ─────────────────────────────────────────
+  const NAV_M365_TO_GCP = [
+    { id: "dashboard",  icon: "◈", label: "Dashboard" },
+    { id: "devices",    icon: "⬡", label: "Devices" },
+    { id: "workplan",   icon: "≡", label: "Workplan" },
+    { id: "phases",     icon: "◫", label: "Phases" },
   ];
+  const NAV_GW_TO_M365 = [
+    { id: "dashboard",     icon: "◈", label: "Dashboard" },
+    { id: "gw_migration",  icon: "▸", label: "Migration Control" },
+  ];
+  const NAV_COMMON = [
+    { id: "tenants", icon: "⚿", label: "Tenants Connection" },
+  ];
+  const NAV = (direction === "gw_to_m365" ? NAV_GW_TO_M365 : NAV_M365_TO_GCP).concat(NAV_COMMON);
+
+  // ── Login gate ──────────────────────────────────────────────────────────
+  if (!authToken) return <LoginPage onLogin={handleLogin} />;
 
   return (
     <div style={{
@@ -565,25 +721,22 @@ export default function MigrationPlatform() {
       fontFamily: "'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif",
       color: C.text, display: "flex", flexDirection: "column",
     }}>
-      {/* Header */}
+      {/* Top bar — slim, full width */}
       <header style={{
         background: C.surface,
-        borderBottom: `2px solid ${C.border}`,
-        padding: "0 32px",
+        borderBottom: `1px solid ${C.border}`,
+        padding: "0 24px",
         display: "flex", alignItems: "center", justifyContent: "space-between",
         height: 56, position: "sticky", top: 0, zIndex: 100,
-        boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+        boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
           <div style={{
-            display: "flex", alignItems: "center", gap: 8,
-            padding: "4px 14px", background: `linear-gradient(135deg, ${C.ms}15, ${C.gcp}15)`,
-            border: `1px solid ${C.border}`, borderRadius: 6,
-          }}>
-            <span style={{ color: C.ms, fontWeight: 700, fontSize: 13 }}>M365</span>
-            <span style={{ color: C.textLight, fontSize: 12 }}>→</span>
-            <span style={{ color: C.gcp, fontWeight: 700, fontSize: 13 }}>GCP</span>
-          </div>
+            width: 36, height: 36, borderRadius: 8,
+            background: `linear-gradient(135deg, ${C.ms}, ${C.gcp})`,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            color: "#fff", fontSize: 18, fontWeight: 700,
+          }}>↔</div>
           <div>
             <div style={{ fontSize: 14, fontWeight: 700, color: C.text, letterSpacing: "-0.01em" }}>
               Migration Platform
@@ -594,34 +747,63 @@ export default function MigrationPlatform() {
           </div>
         </div>
 
-        <nav style={{ display: "flex", gap: 2 }}>
-          {NAV.map(n => (
-            <button key={n.id} onClick={() => setActiveView(n.id)}
-              style={{
-                padding: "6px 16px", border: "none", cursor: "pointer",
-                borderRadius: 6, fontSize: 13, fontWeight: 500,
-                background: activeView === n.id ? `${C.gcp}12` : "transparent",
-                color: activeView === n.id ? C.gcp : C.textMuted,
-                borderBottom: activeView === n.id ? `2px solid ${C.gcp}` : "2px solid transparent",
-                transition: "all 0.15s",
-              }}>
-              {n.icon} {n.label}
-            </button>
-          ))}
-        </nav>
+        {/* Direction Selector — center */}
+        <div style={{
+          display: "flex", alignItems: "center", gap: 6,
+          padding: 4, background: C.slateLight, borderRadius: 8,
+          border: `1px solid ${C.border}`,
+        }}>
+          <button onClick={() => setDirectionPersist("m365_to_gcp")}
+            style={{
+              padding: "6px 16px", border: "none", cursor: "pointer",
+              borderRadius: 6, fontSize: 12, fontWeight: 700,
+              background: direction === "m365_to_gcp" ? C.surface : "transparent",
+              color: direction === "m365_to_gcp" ? C.ms : C.textMuted,
+              boxShadow: direction === "m365_to_gcp" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+              transition: "all 0.15s", display: "flex", alignItems: "center", gap: 6,
+            }}>
+            <span style={{ color: direction === "m365_to_gcp" ? C.ms : C.textLight }}>M365</span>
+            <span style={{ fontSize: 14 }}>→</span>
+            <span style={{ color: direction === "m365_to_gcp" ? C.gcp : C.textLight }}>GCP</span>
+          </button>
+          <button onClick={() => setDirectionPersist("gw_to_m365")}
+            style={{
+              padding: "6px 16px", border: "none", cursor: "pointer",
+              borderRadius: 6, fontSize: 12, fontWeight: 700,
+              background: direction === "gw_to_m365" ? C.surface : "transparent",
+              color: direction === "gw_to_m365" ? "#1a73e8" : C.textMuted,
+              boxShadow: direction === "gw_to_m365" ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+              transition: "all 0.15s", display: "flex", alignItems: "center", gap: 6,
+            }}>
+            <span style={{ color: direction === "gw_to_m365" ? "#34a853" : C.textLight }}>GW</span>
+            <span style={{ fontSize: 14 }}>→</span>
+            <span style={{ color: direction === "gw_to_m365" ? C.ms : C.textLight }}>M365</span>
+          </button>
+        </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
           <div style={{
-            padding: "4px 12px", borderRadius: 20,
+            padding: "4px 10px", borderRadius: 20,
             background: overallProgress >= 75 ? C.successLight : overallProgress >= 40 ? C.warningLight : C.infoLight,
             color: overallProgress >= 75 ? C.success : overallProgress >= 40 ? C.warning : C.info,
-            fontSize: 12, fontWeight: 700,
+            fontSize: 11, fontWeight: 700,
           }}>
             {overallProgress}% Complete
           </div>
-          <div style={{ fontSize: 11, color: C.textLight, textAlign: "right" }}>
-            <div style={{ fontWeight: 600, color: C.textMuted }}>Tom Yair Tommy Itzhar Olivera</div>
-            <div>Itzhar Olivera S&S</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 14, borderLeft: `1px solid ${C.border}` }}>
+            <div style={{
+              width: 30, height: 30, borderRadius: "50%",
+              background: `linear-gradient(135deg, ${C.ms}, ${C.gcp})`,
+              color: "#fff", display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 12, fontWeight: 700,
+            }}>{authUser.charAt(0).toUpperCase()}</div>
+            <div style={{ fontSize: 11, color: C.textMuted, lineHeight: 1.3 }}>
+              <div style={{ fontWeight: 700, color: C.text }}>{authUser}</div>
+              <button onClick={handleLogout}
+                style={{ background: "none", border: "none", color: C.textMuted, fontSize: 11, padding: 0, cursor: "pointer", textDecoration: "underline" }}>
+                Sign out
+              </button>
+            </div>
           </div>
         </div>
       </header>
@@ -644,7 +826,88 @@ export default function MigrationPlatform() {
         </div>
       )}
 
-      <main style={{ flex: 1, padding: "24px 32px", maxWidth: 1400, width: "100%", margin: "0 auto" }}>
+      {/* Body — left sidebar + main content */}
+      <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
+
+        {/* ── LEFT SIDEBAR ── */}
+        <aside style={{
+          width: 240, flexShrink: 0,
+          background: C.surface,
+          borderRight: `1px solid ${C.border}`,
+          display: "flex", flexDirection: "column",
+          padding: "20px 12px",
+        }}>
+          {/* Direction badge */}
+          <div style={{
+            padding: "10px 14px", marginBottom: 16,
+            background: direction === "gw_to_m365" ? "#e8f0fe" : `${C.gcp}10`,
+            border: `1px solid ${direction === "gw_to_m365" ? "#4285f4" : C.gcpMid}`,
+            borderRadius: 8,
+            fontSize: 11, fontWeight: 700, color: direction === "gw_to_m365" ? "#1a73e8" : C.gcpDark,
+            letterSpacing: "0.04em", textTransform: "uppercase", textAlign: "center",
+          }}>
+            {direction === "gw_to_m365" ? "Google Workspace → Microsoft 365" : "Microsoft 365 → GCP"}
+          </div>
+
+          {/* Navigation items */}
+          <nav style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: C.textLight, padding: "6px 12px", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+              Workflow
+            </div>
+            {NAV.filter(n => !NAV_COMMON.find(c => c.id === n.id)).map(n => (
+              <button key={n.id} onClick={() => setActiveView(n.id)}
+                style={{
+                  padding: "10px 14px", border: "none", cursor: "pointer",
+                  borderRadius: 6, fontSize: 13, fontWeight: 500, textAlign: "left",
+                  background: activeView === n.id ? `${direction === "gw_to_m365" ? "#1a73e8" : C.gcp}12` : "transparent",
+                  color: activeView === n.id ? (direction === "gw_to_m365" ? "#1a73e8" : C.gcp) : C.text,
+                  borderLeft: activeView === n.id ? `3px solid ${direction === "gw_to_m365" ? "#1a73e8" : C.gcp}` : "3px solid transparent",
+                  transition: "all 0.15s",
+                  display: "flex", alignItems: "center", gap: 10,
+                }}
+                onMouseEnter={e => { if (activeView !== n.id) e.target.style.background = C.slateLight; }}
+                onMouseLeave={e => { if (activeView !== n.id) e.target.style.background = "transparent"; }}>
+                <span style={{ fontSize: 16, opacity: 0.85 }}>{n.icon}</span>
+                <span>{n.label}</span>
+              </button>
+            ))}
+
+            <div style={{ fontSize: 10, fontWeight: 700, color: C.textLight, padding: "16px 12px 6px", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+              Settings
+            </div>
+            {NAV_COMMON.map(n => (
+              <button key={n.id} onClick={() => setActiveView(n.id)}
+                style={{
+                  padding: "10px 14px", border: "none", cursor: "pointer",
+                  borderRadius: 6, fontSize: 13, fontWeight: 500, textAlign: "left",
+                  background: activeView === n.id ? `${C.gcp}12` : "transparent",
+                  color: activeView === n.id ? C.gcp : C.text,
+                  borderLeft: activeView === n.id ? `3px solid ${C.gcp}` : "3px solid transparent",
+                  transition: "all 0.15s",
+                  display: "flex", alignItems: "center", gap: 10,
+                }}
+                onMouseEnter={e => { if (activeView !== n.id) e.target.style.background = C.slateLight; }}
+                onMouseLeave={e => { if (activeView !== n.id) e.target.style.background = "transparent"; }}>
+                <span style={{ fontSize: 16, opacity: 0.85 }}>{n.icon}</span>
+                <span>{n.label}</span>
+              </button>
+            ))}
+          </nav>
+
+          {/* Sidebar footer */}
+          <div style={{
+            padding: "12px 14px", borderTop: `1px solid ${C.border}`,
+            fontSize: 10, color: C.textLight, lineHeight: 1.5,
+          }}>
+            <div style={{ fontWeight: 700, color: C.textMuted, fontSize: 11, marginBottom: 2 }}>
+              Platform v2.0
+            </div>
+            <div>© Itzhar Olivera S&S</div>
+          </div>
+        </aside>
+
+        {/* ── MAIN CONTENT ── */}
+        <main style={{ flex: 1, padding: "24px 32px", overflowY: "auto", minWidth: 0 }}>
 
         {/* ── DASHBOARD VIEW ── */}
         {activeView === "dashboard" && (
@@ -1567,24 +1830,26 @@ export default function MigrationPlatform() {
           );
         })()}
 
-      </main>
+        </main>
+      </div>
 
       {/* Footer */}
       <footer style={{
         borderTop: `1px solid ${C.border}`,
-        padding: "12px 32px",
+        padding: "8px 24px",
         display: "flex", justifyContent: "space-between", alignItems: "center",
-        background: C.surface, fontSize: 11, color: C.textLight,
+        background: C.surface, fontSize: 10, color: C.textLight,
       }}>
         <div>
           <span style={{ fontWeight: 700, color: C.textMuted }}>© Itzhar Olivera Solutions & Strategy</span>
           {" · "}Tom Yair Tommy Itzhar Olivera
         </div>
-        <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
-          <span style={{ color: C.ms }}>● M365 Blue</span>
-          <span style={{ color: C.gcp }}>● GCP Purple</span>
-          <span style={{ padding: "2px 8px", background: C.successLight, color: C.success, borderRadius: 4, fontWeight: 600 }}>
-            Platform v1.0 · Dev Branch
+        <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
+          <span style={{ color: C.ms, fontSize: 10 }}>● M365</span>
+          <span style={{ color: C.gcp, fontSize: 10 }}>● GCP</span>
+          <span style={{ color: "#34a853", fontSize: 10 }}>● GW</span>
+          <span style={{ padding: "2px 8px", background: C.successLight, color: C.success, borderRadius: 4, fontWeight: 600, fontSize: 10 }}>
+            Platform v2.0
           </span>
         </div>
       </footer>
