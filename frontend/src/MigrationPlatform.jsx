@@ -4,6 +4,17 @@ import {
   PieChart, Pie, Cell, LineChart, Line, Legend
 } from "recharts";
 
+// ── New AvePoint/BitTitan-style views ────────────────────────────────────
+import Discovery from "./views/Discovery.jsx";
+import UserMapping from "./views/UserMapping.jsx";
+import Waves from "./views/Waves.jsx";
+import Schedule from "./views/Schedule.jsx";
+import Jobs from "./views/Jobs.jsx";
+import Errors from "./views/Errors.jsx";
+import Reports from "./views/Reports.jsx";
+import Verification from "./views/Verification.jsx";
+import AuditLog from "./views/AuditLog.jsx";
+
 // ── Design Tokens ────────────────────────────────────────────────────────────
 // White / Purple (Google) / Blue (Microsoft) palette
 const C = {
@@ -696,21 +707,101 @@ export default function MigrationPlatform() {
     return p ? p.color : C.slate;
   };
 
-  // ── Direction-aware navigation ─────────────────────────────────────────
-  const NAV_M365_TO_GCP = [
-    { id: "dashboard",  icon: "◈", label: "Dashboard" },
-    { id: "devices",    icon: "⬡", label: "Devices" },
-    { id: "workplan",   icon: "≡", label: "Workplan" },
-    { id: "phases",     icon: "◫", label: "Phases" },
+  // ── Direction-aware navigation grouped by phase ──────────────────────────
+  // Inspired by AvePoint Fly + BitTitan MigrationWiz: Setup → Discover →
+  // Plan → Run → Monitor → Report → Settings.
+  const NAV_GROUPS = direction === "gw_to_m365" ? [
+    {
+      title: "Setup",
+      items: [
+        { id: "tenants",    icon: "⚿", label: "Tenants Connection" },
+      ],
+    },
+    {
+      title: "Discovery",
+      items: [
+        { id: "discovery",  icon: "🔍", label: "Pre-Migration Scan" },
+      ],
+    },
+    {
+      title: "Planning",
+      items: [
+        { id: "user_mapping", icon: "👥", label: "User Mapping" },
+        { id: "waves",        icon: "🌊", label: "Migration Waves" },
+        { id: "schedule",     icon: "📅", label: "Schedule" },
+      ],
+    },
+    {
+      title: "Execution",
+      items: [
+        { id: "gw_migration", icon: "▶", label: "Migration Control" },
+        { id: "jobs",         icon: "⚙", label: "Active Jobs" },
+      ],
+    },
+    {
+      title: "Monitoring",
+      items: [
+        { id: "dashboard",    icon: "◈", label: "Dashboard" },
+        { id: "errors",       icon: "⚠", label: "Errors & DLQ" },
+      ],
+    },
+    {
+      title: "Reports",
+      items: [
+        { id: "reports",      icon: "📊", label: "Migration Reports" },
+        { id: "verification", icon: "🔬", label: "Verification" },
+        { id: "audit",        icon: "📜", label: "Audit Log" },
+      ],
+    },
+  ] : [
+    {
+      title: "Setup",
+      items: [
+        { id: "tenants",      icon: "⚿", label: "Tenants Connection" },
+      ],
+    },
+    {
+      title: "Discovery",
+      items: [
+        { id: "discovery",    icon: "🔍", label: "Pre-Migration Scan" },
+        { id: "devices",      icon: "⬡", label: "Devices" },
+      ],
+    },
+    {
+      title: "Planning",
+      items: [
+        { id: "user_mapping", icon: "👥", label: "User Mapping" },
+        { id: "waves",        icon: "🌊", label: "Migration Waves" },
+        { id: "schedule",     icon: "📅", label: "Schedule" },
+        { id: "workplan",     icon: "≡", label: "Workplan" },
+        { id: "phases",       icon: "◫", label: "Phases" },
+      ],
+    },
+    {
+      title: "Execution",
+      items: [
+        { id: "jobs",         icon: "⚙", label: "Active Jobs" },
+      ],
+    },
+    {
+      title: "Monitoring",
+      items: [
+        { id: "dashboard",    icon: "◈", label: "Dashboard" },
+        { id: "errors",       icon: "⚠", label: "Errors & DLQ" },
+      ],
+    },
+    {
+      title: "Reports",
+      items: [
+        { id: "reports",      icon: "📊", label: "Migration Reports" },
+        { id: "verification", icon: "🔬", label: "Verification" },
+        { id: "audit",        icon: "📜", label: "Audit Log" },
+      ],
+    },
   ];
-  const NAV_GW_TO_M365 = [
-    { id: "dashboard",     icon: "◈", label: "Dashboard" },
-    { id: "gw_migration",  icon: "▸", label: "Migration Control" },
-  ];
-  const NAV_COMMON = [
-    { id: "tenants", icon: "⚿", label: "Tenants Connection" },
-  ];
-  const NAV = (direction === "gw_to_m365" ? NAV_GW_TO_M365 : NAV_M365_TO_GCP).concat(NAV_COMMON);
+
+  // Flatten for lookup helpers
+  const NAV_FLAT = NAV_GROUPS.flatMap(g => g.items);
 
   // ── Login gate ──────────────────────────────────────────────────────────
   if (!authToken) return <LoginPage onLogin={handleLogin} />;
@@ -829,69 +920,67 @@ export default function MigrationPlatform() {
       {/* Body — left sidebar + main content */}
       <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
 
-        {/* ── LEFT SIDEBAR ── */}
+        {/* ── LEFT SIDEBAR — grouped by phase ── */}
         <aside style={{
-          width: 240, flexShrink: 0,
+          width: 248, flexShrink: 0,
           background: C.surface,
           borderRight: `1px solid ${C.border}`,
           display: "flex", flexDirection: "column",
-          padding: "20px 12px",
+          overflowY: "auto",
         }}>
           {/* Direction badge */}
-          <div style={{
-            padding: "10px 14px", marginBottom: 16,
-            background: direction === "gw_to_m365" ? "#e8f0fe" : `${C.gcp}10`,
-            border: `1px solid ${direction === "gw_to_m365" ? "#4285f4" : C.gcpMid}`,
-            borderRadius: 8,
-            fontSize: 11, fontWeight: 700, color: direction === "gw_to_m365" ? "#1a73e8" : C.gcpDark,
-            letterSpacing: "0.04em", textTransform: "uppercase", textAlign: "center",
-          }}>
-            {direction === "gw_to_m365" ? "Google Workspace → Microsoft 365" : "Microsoft 365 → GCP"}
+          <div style={{ padding: "16px 14px 12px" }}>
+            <div style={{
+              padding: "10px 14px",
+              background: direction === "gw_to_m365" ? "#e8f0fe" : `${C.gcp}10`,
+              border: `1px solid ${direction === "gw_to_m365" ? "#4285f4" : C.gcpMid}`,
+              borderRadius: 8,
+              fontSize: 10, fontWeight: 700, color: direction === "gw_to_m365" ? "#1a73e8" : C.gcpDark,
+              letterSpacing: "0.04em", textTransform: "uppercase", textAlign: "center",
+            }}>
+              {direction === "gw_to_m365" ? "GW → Microsoft 365" : "M365 → GCP"}
+            </div>
           </div>
 
-          {/* Navigation items */}
-          <nav style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: C.textLight, padding: "6px 12px", letterSpacing: "0.08em", textTransform: "uppercase" }}>
-              Workflow
-            </div>
-            {NAV.filter(n => !NAV_COMMON.find(c => c.id === n.id)).map(n => (
-              <button key={n.id} onClick={() => setActiveView(n.id)}
-                style={{
-                  padding: "10px 14px", border: "none", cursor: "pointer",
-                  borderRadius: 6, fontSize: 13, fontWeight: 500, textAlign: "left",
-                  background: activeView === n.id ? `${direction === "gw_to_m365" ? "#1a73e8" : C.gcp}12` : "transparent",
-                  color: activeView === n.id ? (direction === "gw_to_m365" ? "#1a73e8" : C.gcp) : C.text,
-                  borderLeft: activeView === n.id ? `3px solid ${direction === "gw_to_m365" ? "#1a73e8" : C.gcp}` : "3px solid transparent",
-                  transition: "all 0.15s",
-                  display: "flex", alignItems: "center", gap: 10,
-                }}
-                onMouseEnter={e => { if (activeView !== n.id) e.target.style.background = C.slateLight; }}
-                onMouseLeave={e => { if (activeView !== n.id) e.target.style.background = "transparent"; }}>
-                <span style={{ fontSize: 16, opacity: 0.85 }}>{n.icon}</span>
-                <span>{n.label}</span>
-              </button>
-            ))}
-
-            <div style={{ fontSize: 10, fontWeight: 700, color: C.textLight, padding: "16px 12px 6px", letterSpacing: "0.08em", textTransform: "uppercase" }}>
-              Settings
-            </div>
-            {NAV_COMMON.map(n => (
-              <button key={n.id} onClick={() => setActiveView(n.id)}
-                style={{
-                  padding: "10px 14px", border: "none", cursor: "pointer",
-                  borderRadius: 6, fontSize: 13, fontWeight: 500, textAlign: "left",
-                  background: activeView === n.id ? `${C.gcp}12` : "transparent",
-                  color: activeView === n.id ? C.gcp : C.text,
-                  borderLeft: activeView === n.id ? `3px solid ${C.gcp}` : "3px solid transparent",
-                  transition: "all 0.15s",
-                  display: "flex", alignItems: "center", gap: 10,
-                }}
-                onMouseEnter={e => { if (activeView !== n.id) e.target.style.background = C.slateLight; }}
-                onMouseLeave={e => { if (activeView !== n.id) e.target.style.background = "transparent"; }}>
-                <span style={{ fontSize: 16, opacity: 0.85 }}>{n.icon}</span>
-                <span>{n.label}</span>
-              </button>
-            ))}
+          {/* Grouped nav items */}
+          <nav style={{ display: "flex", flexDirection: "column", flex: 1, padding: "0 8px" }}>
+            {NAV_GROUPS.map(group => {
+              const accent = direction === "gw_to_m365" ? "#1a73e8" : C.gcp;
+              return (
+                <div key={group.title} style={{ marginBottom: 12 }}>
+                  <div style={{
+                    fontSize: 10, fontWeight: 700, color: C.textLight,
+                    padding: "8px 12px 4px",
+                    letterSpacing: "0.08em", textTransform: "uppercase",
+                  }}>
+                    {group.title}
+                  </div>
+                  {group.items.map(n => {
+                    const active = activeView === n.id;
+                    return (
+                      <button key={n.id} onClick={() => setActiveView(n.id)}
+                        style={{
+                          width: "100%",
+                          padding: "8px 12px", border: "none", cursor: "pointer",
+                          borderRadius: 6, fontSize: 13, fontWeight: active ? 600 : 500,
+                          textAlign: "left",
+                          background: active ? `${accent}14` : "transparent",
+                          color: active ? accent : C.text,
+                          borderLeft: active ? `3px solid ${accent}` : "3px solid transparent",
+                          transition: "all 0.12s",
+                          display: "flex", alignItems: "center", gap: 10,
+                          marginBottom: 1,
+                        }}
+                        onMouseEnter={e => { if (!active) e.currentTarget.style.background = C.slateLight; }}
+                        onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; }}>
+                        <span style={{ fontSize: 14, opacity: 0.9, width: 18, textAlign: "center" }}>{n.icon}</span>
+                        <span>{n.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })}
           </nav>
 
           {/* Sidebar footer */}
@@ -909,13 +998,26 @@ export default function MigrationPlatform() {
         {/* ── MAIN CONTENT ── */}
         <main style={{ flex: 1, padding: "24px 32px", overflowY: "auto", minWidth: 0 }}>
 
+        {/* ── New AvePoint/BitTitan-style modular views ── */}
+        {activeView === "discovery"    && <Discovery direction={direction} notify={notify} />}
+        {activeView === "user_mapping" && <UserMapping direction={direction} notify={notify} />}
+        {activeView === "waves"        && <Waves direction={direction} notify={notify} />}
+        {activeView === "schedule"     && <Schedule direction={direction} notify={notify} />}
+        {activeView === "jobs"         && <Jobs direction={direction} notify={notify} />}
+        {activeView === "errors"       && <Errors direction={direction} notify={notify} />}
+        {activeView === "reports"      && <Reports direction={direction} notify={notify} />}
+        {activeView === "verification" && <Verification direction={direction} notify={notify} />}
+        {activeView === "audit"        && <AuditLog />}
+
         {/* ── DASHBOARD VIEW ── */}
         {activeView === "dashboard" && (
           <div>
             <div style={{ marginBottom: 24 }}>
               <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: C.text }}>Migration Dashboard</h1>
               <p style={{ margin: "4px 0 0", color: C.textMuted, fontSize: 13 }}>
-                Microsoft 365 → Google Workspace · End-to-end orchestration
+                {direction === "gw_to_m365"
+                  ? "Google Workspace → Microsoft 365 · End-to-end orchestration"
+                  : "Microsoft 365 → Google Cloud Platform · End-to-end orchestration"}
               </p>
             </div>
 
